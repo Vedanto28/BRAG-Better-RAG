@@ -1,0 +1,194 @@
+[
+  {
+    "id": "auth-001",
+    "category": "authentication",
+    "symptoms": ["jwt verification failure", "invalid signature", "jwt malformed", "jsonwebtokenerror"],
+    "commonCauses": ["mismatched JWT secret key", "corrupted token structure", "algorithm mismatch"],
+    "investigationSteps": ["Check JWT_SECRET value in .env file", "Inspect token header using jwt.io", "Ensure signing and verification algorithms match"],
+    "codeSearchHints": ["jwt.verify", "JWT_SECRET", "jsonwebtoken"]
+  },
+  {
+    "id": "auth-002",
+    "category": "authentication",
+    "symptoms": ["expired token", "jwt expired", "token expired", "token_expired"],
+    "commonCauses": ["expiresIn configuration too short", "system clock out of sync (clock skew)", "stale user session"],
+    "investigationSteps": ["Check jwt expiresIn parameter in sign", "Verify server time synchronization", "Inspect token exp claim timestamp"],
+    "codeSearchHints": ["jwt.sign", "expiresIn", "jwt.verify"]
+  },
+  {
+    "id": "auth-003",
+    "category": "authentication",
+    "symptoms": ["missing authentication token", "no token provided", "authorization header missing", "unauthorized token extraction failed"],
+    "commonCauses": ["frontend did not attach Authorization header", "Bearer prefix missing in header", "CORS preflight request blocked authorization header"],
+    "investigationSteps": ["Check request headers in network tab", "Verify frontend authorization header construction", "Verify token extraction regex on server"],
+    "codeSearchHints": ["headers.authorization", "Bearer", "req.headers"]
+  },
+  {
+    "id": "auth-004",
+    "category": "authentication",
+    "symptoms": ["authorization middleware failure", "unauthorized access denied", "roles check failed", "forbidden route access"],
+    "commonCauses": ["user roles/scopes not attached to request context", "auth middleware placed on wrong route", "claims format mismatch"],
+    "investigationSteps": ["Log req.user in middleware", "Verify order of auth check vs role check middleware", "Verify user database schema roles mapping"],
+    "codeSearchHints": ["req.user", "authMiddleware", "roles"]
+  },
+  {
+    "id": "db-001",
+    "category": "database-connection",
+    "symptoms": ["econnrefused database connection", "database connection failed", "could not connect to database", "mongo network error"],
+    "commonCauses": ["database service is not running on target host", "wrong database port configured", "firewall blocking database port access"],
+    "investigationSteps": ["Check database service status on database server", "Verify host and port configurations in env", "Test port connectivity using telnet or nc"],
+    "codeSearchHints": ["mongoose.connect", "mongodb://", "pg.connect", "DB_PORT"]
+  },
+  {
+    "id": "db-002",
+    "category": "database-connection",
+    "symptoms": ["database connection timeout", "connection timeout exceeded", "mongo timeout", "postgres connection timeout"],
+    "commonCauses": ["incorrect database host configured", "slow network connection or packet drop", "database server overloaded"],
+    "investigationSteps": ["Verify DB_HOST env resolution", "Check database server CPU and load average", "Ping database host from application container"],
+    "codeSearchHints": ["connectTimeoutMS", "connectionTimeout", "DB_URL", "DB_HOST"]
+  },
+  {
+    "id": "db-003",
+    "category": "database-connection",
+    "symptoms": ["connection pool exhaustion", "too many connections", "postgres pool timeout", "db pool empty"],
+    "commonCauses": ["database connections not released to pool", "max connections pool limit too low", "leaked connections inside loop"],
+    "investigationSteps": ["Check open database connection counts", "Verify pool size configuration", "Inspect code for unreleased clients (e.g. pg client.release)"],
+    "codeSearchHints": ["maxPoolSize", "poolSize", "pg.Pool", "client.release"]
+  },
+  {
+    "id": "db-004",
+    "category": "database-connection",
+    "symptoms": ["client used before initialization", "cannot read property query of undefined", "connection not established"],
+    "commonCauses": ["database client not initialized during app startup", "database connection called before connection promise resolves"],
+    "investigationSteps": ["Verify database client initialization order", "Check if connection code awaits db connection before starting server"],
+    "codeSearchHints": ["dbClient", "connect()", "await mongoose.connect"]
+  },
+  {
+    "id": "cors-001",
+    "category": "cors",
+    "symptoms": ["missing allow-origin header", "blocked by cors policy", "no access-control-allow-origin header"],
+    "commonCauses": ["cors middleware not enabled on server", "allow-origin header value misconfigured", "request origin not in whitelist"],
+    "investigationSteps": ["Verify cors middleware is registered in express app", "Inspect Access-Control-Allow-Origin response header", "Check origin whitelist configurations"],
+    "codeSearchHints": ["cors(", "app.use(cors", "Access-Control-Allow-Origin"]
+  },
+  {
+    "id": "cors-002",
+    "category": "cors",
+    "symptoms": ["origin mismatch cors", "cors blocked origin", "invalid cors origin"],
+    "commonCauses": ["origin in request does not match allowed origins regex/array", "production vs staging origin mismatches"],
+    "investigationSteps": ["Check req.headers.origin", "Compare request origin with allowed origins list", "Log whitelisted origins on server startup"],
+    "codeSearchHints": ["origin:", "allowedOrigins", "corsOptions"]
+  },
+  {
+    "id": "cors-003",
+    "category": "cors",
+    "symptoms": ["failed options preflight cors", "preflight request failed", "options preflight blocked"],
+    "commonCauses": ["OPTIONS request returns non-2xx status code", "express options request handling missing", "preflight response missing required CORS headers"],
+    "investigationSteps": ["Verify OPTIONS endpoint response code in network tab", "Ensure preflight handling middleware is registered", "Check optionsSuccessStatus configuration"],
+    "codeSearchHints": ["app.options", "optionsSuccessStatus", "preflightContinue"]
+  },
+  {
+    "id": "cors-004",
+    "category": "cors",
+    "symptoms": ["credentials mismatch cors", "access-control-allow-credentials missing"],
+    "commonCauses": ["credentials requested by client but allow-credentials not set to true", "wildcard allowed origin used with credentials (unsupported)"],
+    "investigationSteps": ["Check client side credentials config (e.g., credentials: 'include')", "Verify Access-Control-Allow-Credentials is 'true'", "Ensure Access-Control-Allow-Origin is not '*' when credentials are sent"],
+    "codeSearchHints": ["credentials: true", "allowCredentials", "corsOptions"]
+  },
+  {
+    "id": "env-001",
+    "category": "environment-config",
+    "symptoms": ["missing env variable", "undefined env variable", "process.env empty"],
+    "commonCauses": ["dotenv loaded after accessing variables", "variable name typo in env or code", "variable not declared in active environment profile"],
+    "investigationSteps": ["Log process.env on startup", "Verify exact spelling of variable in .env and code", "Check if dotenv config runs at entry point of application"],
+    "codeSearchHints": ["dotenv.config", "process.env", "path.resolve"]
+  },
+  {
+    "id": "env-002",
+    "category": "environment-config",
+    "symptoms": ["incorrect env path", "dotenv not loading", "env file missing"],
+    "commonCauses": ["relative path to .env resolved incorrectly", "running app from different working directory than node startup dir"],
+    "investigationSteps": ["Verify .env absolute path using path.resolve", "Check working directory of node process using process.cwd()"],
+    "codeSearchHints": ["dotenv.config", "path.resolve", "path.join"]
+  },
+  {
+    "id": "env-003",
+    "category": "environment-config",
+    "symptoms": ["dotenv loaded too late", "port undefined", "server start crash"],
+    "commonCauses": ["database or network service initialized before dotenv.config() executes"],
+    "investigationSteps": ["Trace module import order in server entry file", "Ensure dotenv is imported and configured at the absolute top of server.js"],
+    "codeSearchHints": ["dotenv.config", "server.js", "import dotenv"]
+  },
+  {
+    "id": "env-004",
+    "category": "environment-config",
+    "symptoms": ["variable-name mismatch env", "configuration typo", "mismatched env prefix"],
+    "commonCauses": ["using camelCase in code but UPPER_CASE in .env", "prefix mismatch (e.g. REACT_APP_ vs VITE_)"],
+    "investigationSteps": ["Inspect .env file spelling", "Trace env usage in config file"],
+    "codeSearchHints": ["process.env.", "config.js"]
+  },
+  {
+    "id": "async-001",
+    "category": "async-promise-errors",
+    "symptoms": ["unhandled promise rejection", "unhandledrejection", "unhandled rejection"],
+    "commonCauses": ["missing .catch() block on promise chain", "async function throwing error without try-catch block"],
+    "investigationSteps": ["Check for catch blocks in promise chains", "Register process.on('unhandledRejection') handler to log stack traces"],
+    "codeSearchHints": ["process.on('unhandledRejection')", ".catch(", "try {"]
+  },
+  {
+    "id": "async-002",
+    "category": "async-promise-errors",
+    "symptoms": ["missing await in async function", "promise pending", "cannot read property then of pending promise"],
+    "commonCauses": ["forgot to await an async function call", "returning promise when value is expected"],
+    "investigationSteps": ["Ensure async calls are prefixed with await", "Check return types of functions"],
+    "codeSearchHints": ["await ", "async function"]
+  },
+  {
+    "id": "async-003",
+    "category": "async-promise-errors",
+    "symptoms": ["rejected promise not propagated", "swallowed error"],
+    "commonCauses": ["try-catch block catching error but not re-throwing or passing to next()", "empty catch block"],
+    "investigationSteps": ["Check for empty catch blocks", "Verify caught errors are logged or re-thrown"],
+    "codeSearchHints": ["catch (err) {", "catch(error) {}"]
+  },
+  {
+    "id": "async-004",
+    "category": "async-promise-errors",
+    "symptoms": ["async Express handler failure", "express app hanging on error", "unhandled route error"],
+    "commonCauses": ["Express 4 does not automatically catch errors in async handlers", "forgot to call next(err) in catch block"],
+    "investigationSteps": ["Verify all async route handlers wrap operations in try-catch and call next(err)", "Consider using express-async-errors package"],
+    "codeSearchHints": ["next(err)", "catch(err)", "router.get"]
+  },
+  {
+    "id": "mid-001",
+    "category": "middleware-errors",
+    "symptoms": ["incorrect middleware order", "body parser not working", "req.body is undefined"],
+    "commonCauses": ["body parser middleware mounted after route registration", "router registered before CORS middleware"],
+    "investigationSteps": ["Check sequence of app.use calls in server.js", "Verify express.json() or body-parser is registered before app.use('/api')"],
+    "codeSearchHints": ["app.use(express.json", "app.use(cors", "app.use('/api'"]
+  },
+  {
+    "id": "mid-002",
+    "category": "middleware-errors",
+    "symptoms": ["invalid error-handler signature", "error middleware ignored", "express error handler not called"],
+    "commonCauses": ["error handler middleware missing next parameter", "error handler must have exactly 4 arguments: (err, req, res, next)"],
+    "investigationSteps": ["Verify error-handler function arguments signature", "Confirm error-handler is mounted at the very end after all routes"],
+    "codeSearchHints": ["(err, req, res, next)", "app.use((err"]
+  },
+  {
+    "id": "mid-003",
+    "category": "middleware-errors",
+    "symptoms": ["auth middleware on wrong route", "unauthorized check blocked public routes"],
+    "commonCauses": ["mounting auth middleware globally (app.use(authMiddleware)) before public routes (e.g. /login, /health)"],
+    "investigationSteps": ["Trace route definition files", "Check order of public routes vs private routes middleware registration"],
+    "codeSearchHints": ["app.use(authMiddleware)", "/login", "/health"]
+  },
+  {
+    "id": "mid-004",
+    "category": "middleware-errors",
+    "symptoms": ["missing late body parser", "json body parse error", "payload too large"],
+    "commonCauses": ["missing parser for raw/url-encoded payload", "payload size exceeding limit"],
+    "investigationSteps": ["Check express.urlencoded limit configuration", "Check content-type of incoming requests"],
+    "codeSearchHints": ["express.urlencoded", "limit:"]
+  }
+]
