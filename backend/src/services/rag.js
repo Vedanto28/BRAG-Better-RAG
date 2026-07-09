@@ -99,10 +99,12 @@ function scoreDebuggingEntry(query, entry) {
 
   const containsWord = (target, word) => {
     if (!target) return false;
+    const escapedWord = word.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const wordRegex = new RegExp('\\b' + escapedWord + '\\b', 'i');
     if (Array.isArray(target)) {
-      return target.some(item => typeof item === 'string' && item.toLowerCase().includes(word));
+      return target.some(item => typeof item === 'string' && wordRegex.test(item));
     }
-    return typeof target === 'string' && target.toLowerCase().includes(word);
+    return typeof target === 'string' && wordRegex.test(target);
   };
 
   let score = 0;

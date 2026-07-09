@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isLogStructured, parseErrorLog } from '../utils/logParser.js';
 
 function convertType(type) {
   if (!type) return undefined;
@@ -27,7 +28,39 @@ function convertProperties(properties) {
   return converted;
 }
 
-export async function generateResponse({ messages, systemPrompt, tools, maxTokens }) {
+function isRetryableError(error) {
+  if (error.status) {
+    if (error.status === 503) return true;
+    return false;
+  }
+  const msg = (error.message || String(error)).toLowerCase();
+  const nonRetryableIndicators = [
+    'api_key', 'unauthorized', 'invalid key', 'api key', 
+    'not found', 'invalid model', 'model not found',
+    'bad request', '400', '401', '403', '404', '429',
+    'rate limit', 'quota', 'resource exhausted', 'resourceexhausted'
+  ];
+  if (nonRetryableIndicators.some(ind => msg.includes(ind))) {
+    return false;
+  }
+  const retryableIndicators = [
+    '503', 'service unavailable', 'overloaded', 'high demand', 'temporary'
+  ];
+  return retryableIndicators.some(ind => msg.includes(ind));
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal }) {
+  if (process.env.TEST_GEMINI_FAIL_ALL === 'true') {
+    const err = new Error("Mocked Gemini 503 service unavailable");
+    err.category = "Quota";
+    err.status = 503;
+    throw err;
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not set.');
@@ -50,7 +83,7 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
   }] : undefined;
 
   const activeModel = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
     systemInstruction: systemPrompt,
     tools: geminiTools,
     generationConfig: maxTokens ? { maxOutputTokens: maxTokens } : undefined
@@ -87,54 +120,192 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     };
   });
 
-  try {
-    const result = await activeModel.generateContent({
-      contents,
-      generationConfig: maxTokens ? { maxOutputTokens: maxTokens } : undefined
-    });
-    const candidate = result.response.candidates?.[0];
-    const parts = candidate?.content?.parts || [];
-    
-    const functionCalls = parts
-      .filter(part => part.functionCall)
-      .map(part => part.functionCall);
-
-    if (functionCalls.length > 0) {
-      return {
-        toolCalls: functionCalls.map(fc => ({
-          id: fc.id || fc.name,
-          name: fc.name,
-          args: fc.args
-        }))
-      };
+  let attempts = 0;
+  const maxAttempts = 3;
+  while (attempts < maxAttempts) {
+    if (signal?.aborted) {
+      const err = new Error("gemini request timed out.");
+      err.category = "Timeout";
+      err.attempts = attempts;
+      throw err;
     }
 
-    const text = result.response.text();
-    return { text };
-  } catch (error) {
-    let category = 'Other Upstream Error';
-    const msg = error.message || String(error);
-    if (msg.includes('API_KEY') || msg.includes('key') || msg.includes('API key') || msg.includes('Unauthorized')) {
-      category = 'Authentication';
-    } else if (msg.includes('quota') || msg.includes('limit') || msg.includes('ResourceExhausted')) {
-      category = 'Quota';
-    } else if (msg.includes('timeout') || msg.includes('timed out')) {
-      category = 'Timeout';
-    } else if (msg.includes('model') || msg.includes('not found')) {
-      category = 'Model Availability';
+    attempts++;
+    if (global.__geminiTestTracker) {
+      global.__geminiTestTracker.attempts = (global.__geminiTestTracker.attempts || 0) + 1;
     }
-    const err = new Error(msg);
-    err.category = category;
-    throw err;
+    try {
+      console.log(`[Gemini Provider] Attempt ${attempts}/${maxAttempts} to generate content...`);
+      
+      // Hook for Test D
+      if (process.env.TEST_GEMINI_RETRY_SEQUENCE === 'true') {
+        if (attempts < 3) {
+          console.log(`[TEST MOCK] Simulating 503 error for attempt ${attempts}`);
+          const err = new Error("Simulated 503 Service Unavailable");
+          err.status = 503;
+          throw err;
+        } else {
+          console.log(`[TEST MOCK] Simulating success for attempt ${attempts}`);
+          return { text: "Success response after retries!" };
+        }
+      }
+
+      // Hook for Test E
+      if (process.env.TEST_GEMINI_PERMANENT_ERROR === 'true') {
+        console.log(`[TEST MOCK] Simulating permanent error on attempt ${attempts}`);
+        const err = new Error("Simulated 401 Unauthorized / Invalid API Key");
+        err.status = 401;
+        throw err;
+      }
+
+      // Hook for Test 429
+      if (process.env.TEST_GEMINI_429_ERROR === 'true') {
+        console.log(`[TEST MOCK] Simulating HTTP 429 error on attempt ${attempts}`);
+        const err = new Error("Simulated 429 Resource Exhausted / Rate limit exceeded");
+        err.status = 429;
+        throw err;
+      }
+
+      if (signal?.aborted) {
+        const err = new Error("gemini request timed out.");
+        err.category = "Timeout";
+        err.attempts = attempts;
+        throw err;
+      }
+
+      const apiCall = activeModel.generateContent({
+        contents,
+        generationConfig: maxTokens ? { maxOutputTokens: maxTokens } : undefined
+      }, { signal });
+
+      // Prevent unhandled rejections if we abandon this promise due to timeout/abort
+      apiCall.catch(() => {});
+
+      // Race the API call with the abort signal
+      const result = await new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          return reject(new Error("gemini request timed out."));
+        }
+        const onAbort = () => {
+          reject(new Error("gemini request timed out."));
+        };
+        signal?.addEventListener('abort', onAbort);
+        apiCall.then(
+          (res) => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve(res);
+          },
+          (err) => {
+            signal?.removeEventListener('abort', onAbort);
+            reject(err);
+          }
+        );
+      });
+
+      const candidate = result.response.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      
+      const functionCalls = parts
+        .filter(part => part.functionCall)
+        .map(part => part.functionCall);
+
+      if (functionCalls.length > 0) {
+        return {
+          toolCalls: functionCalls.map(fc => ({
+            id: fc.id || fc.name,
+            name: fc.name,
+            args: fc.args
+          }))
+        };
+      }
+
+      const text = result.response.text();
+      return { text };
+    } catch (error) {
+      console.warn(`[Gemini Provider] Attempt ${attempts} failed: ${error.message}`);
+      
+      if (signal?.aborted || error.message?.includes("timed out")) {
+        const err = new Error("gemini request timed out.");
+        err.category = "Timeout";
+        err.attempts = attempts;
+        throw err;
+      }
+
+      if (attempts >= maxAttempts || !isRetryableError(error)) {
+        let category = 'Other Upstream Error';
+        const msg = error.message || String(error);
+        if (msg.includes('API_KEY') || msg.includes('key') || msg.includes('API key') || msg.includes('Unauthorized')) {
+          category = 'Authentication';
+        } else if (msg.includes('quota') || msg.includes('limit') || msg.includes('ResourceExhausted') || msg.includes('429')) {
+          category = 'Quota';
+        } else if (msg.includes('timeout') || msg.includes('timed out')) {
+          category = 'Timeout';
+        } else if (msg.includes('model') || msg.includes('not found')) {
+          category = 'Model Availability';
+        }
+        const err = new Error(msg);
+        err.category = category;
+        err.attempts = attempts;
+        throw err;
+      }
+      
+      const baseDelay = Math.pow(2, attempts - 1) * 1000;
+      const jitter = Math.floor(Math.random() * 200);
+      const sleepTime = baseDelay + jitter;
+      console.log(`[Gemini Provider] Retryable error encountered. Retrying in ${sleepTime}ms...`);
+      
+      // Sleep with abort listener
+      await new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          return reject(new Error("gemini request timed out."));
+        }
+        const onAbort = () => {
+          clearTimeout(timeoutId);
+          reject(new Error("gemini request timed out."));
+        };
+        const timeoutId = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        }, sleepTime);
+        signal?.addEventListener('abort', onAbort);
+      });
+    }
   }
 }
 
-export function buildDeterministicFallback(userQuery, contextText) {
+export function buildDeterministicFallback(userQuery, contextText, debuggingMatches = [], generalMatches = []) {
   const query = userQuery.toLowerCase().trim();
-  
-  // If we have retrieved context, return it directly as the fallback answer
+
+  if (isLogStructured(userQuery)) {
+    const parsed = parseErrorLog(userQuery);
+    let logLine = "";
+    if (parsed && parsed.errorType !== "Unknown") {
+      logLine = `- Log: ${parsed.errorType}: ${parsed.errorMessage}`;
+      if (parsed.groupedOccurrences > 1) {
+        logLine += ` (occurred ${parsed.groupedOccurrences} times)`;
+      }
+    }
+    let hypothesis = "Error signature matched from logs.";
+    if (debuggingMatches && debuggingMatches.length > 0) {
+      hypothesis = `${debuggingMatches[0].category} issue: ${debuggingMatches[0].commonCauses.join(', ')}`;
+    }
+    return `Hypothesis\n\n${hypothesis}\n\nEvidence\n\n${logLine || "- Log: No structured error pattern found"}\n\nAssessment\n\nParsed pasted error log / stack trace. Further codebase exploration was aborted due to provider unavailability.\n\nConfidence\n\nLow`;
+  }
+
+  // A. If relevant debugging RAG matches exist, return a concise hypothesis derived only from those retrieved entries.
+  if (debuggingMatches && debuggingMatches.length > 0) {
+    const firstMatch = debuggingMatches[0];
+    const causes = firstMatch.commonCauses.join(', ');
+    return `Hypothesis\n${firstMatch.category} issue: ${causes}\n\nEvidence\nNo repository evidence was gathered for this answer.\n\nAssessment\nPotential issue identified from local debugging knowledge base.\n\nConfidence\nLow`;
+  }
+
+  // B. Else if relevant general RAG context exists, return a concise answer derived only from the retrieved knowledge-base content.
+  if (generalMatches && generalMatches.length > 0) {
+    return `General BRAG Knowledge:\n` + generalMatches.map((entry) => `${entry.topic}: ${entry.content}`).join('\n');
+  }
+
+  // If we have retrieved context as text but matches are not passed explicitly
   if (contextText && contextText.trim().length > 0) {
-    // Format the retrieved context nicely
     return contextText.trim();
   }
 
@@ -199,5 +370,5 @@ export function buildDeterministicFallback(userQuery, contextText) {
     }
   }
 
-  return 'I am ready to help, but I could not generate a model-based answer for that question right now.';
+  return 'The AI provider is temporarily unavailable. Please try again later.';
 }

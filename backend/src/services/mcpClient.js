@@ -4,6 +4,10 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 let clientInstance = null;
 
 export async function getMcpClient() {
+  if (global.__mcpTestTracker) {
+    global.__mcpTestTracker.invocations = (global.__mcpTestTracker.invocations || 0) + 1;
+  }
+
   if (clientInstance) {
     return clientInstance;
   }

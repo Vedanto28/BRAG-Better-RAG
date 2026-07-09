@@ -3,6 +3,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { retrieveContext } from "./rag.js";
 import { LocalRepoProvider } from "../providers/localRepoProvider.js";
 import { LocalGitProvider } from "../providers/localGitProvider.js";
+import { parseErrorLog } from "../utils/logParser.js";
 
 let repoProviderInstance = null;
 function getRepoProvider() {
@@ -162,6 +163,20 @@ const toolsList = [
       },
       required: ["commitHash"]
     }
+  },
+  {
+    name: "parseErrorLog",
+    description: "parses pasted log/error text only, no live log access, read-only, secrets redacted, input capped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        logText: {
+          type: "string",
+          description: "The raw pasted error log or stack trace text content to parse."
+        }
+      },
+      required: ["logText"]
+    }
   }
 ];
 
@@ -311,6 +326,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: JSON.stringify(details, null, 2),
+            },
+          ],
+        };
+      }
+      case "parseErrorLog": {
+        const { logText } = args ?? {};
+        if (!logText || typeof logText !== "string") {
+          throw new Error("logText parameter is required and must be a string.");
+        }
+        const result = parseErrorLog(logText);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
             },
           ],
         };

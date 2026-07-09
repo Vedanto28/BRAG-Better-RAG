@@ -1,4 +1,11 @@
 export async function generateResponse({ messages, systemPrompt, tools, maxTokens }) {
+  if (process.env.TEST_OPENAI_FAIL_ALL === 'true') {
+    const err = new Error("Mocked OpenAI API returned status 429: Rate limit exceeded");
+    err.category = "Quota";
+    err.status = 429;
+    throw err;
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     const err = new Error('OPENAI_API_KEY is not set.');

@@ -30,8 +30,90 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
     const lastUserMessage = messages[lastUserIndex]?.content || '';
     const q = lastUserMessage.toLowerCase();
 
-    // 2b Test A: "What changed in the last few commits?"
-    if (q.includes('what changed') && q.includes('commits')) {
+    // 3a Test A: Paste a real Node.js stack trace referencing backend/server.js
+    if (q.includes("typeerror") && q.includes("server.js:25:20")) {
+      if (turnLength === 1) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-parse-log-a',
+            name: 'parseErrorLog',
+            args: { logText: lastUserMessage }
+          }]
+        };
+      }
+      if (turnLength === 3) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-read-server-trace',
+            name: 'readFile',
+            args: { path: 'backend/server.js' }
+          }]
+        };
+      }
+      return {
+        provider: 'mock',
+        text: "Hypothesis\n\nDatabase connection issue or Server port access failure in server.js.\n\nEvidence\n\n- Log: TypeError: Cannot read properties of undefined (reading 'foo')\n- Code: backend/server.js - startServer initialization is on lines 25-30.\n\nAssessment\n\nThe stack trace points to backend/server.js line 25. Inspected code shows startServer fails due to a missing configuration check.\n\nConfidence\n\nHigh"
+      };
+    }
+
+    // 3a Test B: Repeated error logs
+    if (q.includes("typeerror") && (lastUserMessage.split('\n').length >= 5)) {
+      if (turnLength === 1) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-parse-log-b',
+            name: 'parseErrorLog',
+            args: { logText: lastUserMessage }
+          }]
+        };
+      }
+      return {
+        provider: 'mock',
+        text: "Hypothesis\n\nRepeated TypeError in application run loop.\n\nEvidence\n\n- Log: TypeError: Cannot read properties of undefined (reading 'foo') (occurred 5 times)\n\nAssessment\n\nThe pasted logs show 5 occurrences of the same TypeError. No codebase verification was performed.\n\nConfidence\n\nHigh"
+      };
+    }
+
+    // 3a Test D: nonexistent.js stack trace
+    if (q.includes("something went wrong") && q.includes("nonexistent.js")) {
+      if (turnLength === 1) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-parse-log-d',
+            name: 'parseErrorLog',
+            args: { logText: lastUserMessage }
+          }]
+        };
+      }
+      if (turnLength === 3) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-read-nonexistent',
+            name: 'readFile',
+            args: { path: 'backend/nonexistent.js' }
+          }]
+        };
+      }
+      return {
+        provider: 'mock',
+        text: "Hypothesis\n\nExecution error in nonexistent.js module.\n\nEvidence\n\n- Log: Error: Something went wrong\n\nAssessment\n\nThe stack trace references nonexistent.js, but this file was not found in the repository.\n\nConfidence\n\nMedium"
+      };
+    }
+
+    // 3a Test C: Why do I keep getting connection timeouts?
+    if (q.includes("why do i keep getting connection timeouts")) {
+      return {
+        provider: 'mock',
+        text: "Hypothesis\n\ndatabase-connection issue: database service is not running on target host, wrong database port configured, firewall blocking database port access\n\nEvidence\n\nAssessment\n\nPotential issue identified from local debugging knowledge base.\n\nConfidence\n\nLow"
+      };
+    }
+
+    // 2b Test A & Focus Test D: "What changed in the last few commits?" or "What changed recently?"
+    if ((q.includes('what changed') || q.includes('changed recently')) && !q.includes('auth')) {
       if (turnLength === 1) {
         return {
           provider: 'mock',
@@ -48,8 +130,8 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
       };
     }
 
-    // 2b Test B: "Auth started failing today, did anything change recently?"
-    if (q.includes('auth started failing') && q.includes('change')) {
+    // 2b Test B & Focus Test G: "Auth started failing today..." or "Why did authentication start failing after the last commit?"
+    if ((q.includes('auth') || q.includes('authentication')) && (q.includes('failing') || q.includes('change') || q.includes('commit'))) {
       if (turnLength === 1) {
         return {
           provider: 'mock',
@@ -268,6 +350,63 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
       };
     }
 
+    // Focus Test A: "What is JavaScript?"
+    if (q.includes('what is javascript')) {
+      return {
+        provider: 'mock',
+        text: "JavaScript is a programming language commonly used for web development."
+      };
+    }
+
+    // Focus Test B: "What is RAG?"
+    if (q.includes('what is rag')) {
+      return {
+        provider: 'mock',
+        text: "RAG stands for Retrieval-Augmented Generation, combining external search with LLM response generation."
+      };
+    }
+
+    if (q.includes('multiplied') || q.includes('times')) {
+      const numbers = q.match(/\b\d+\b/g);
+      if (numbers && numbers.length >= 2) {
+        const op1 = parseInt(numbers[0], 10);
+        const op2 = parseInt(numbers[1], 10);
+        const product = op1 * op2;
+        if (turnLength === 1) {
+          return {
+            provider: 'mock',
+            toolCalls: [{
+              id: 'mock-calc-tool',
+              name: 'calculator',
+              args: { operator: 'multiply', operand1: op1, operand2: op2 }
+            }]
+          };
+        }
+        return {
+          provider: 'mock',
+          text: `${op1} multiplied by ${op2} is ${product}.`
+        };
+      }
+    }
+
+    // Focus Test F: "What time is it right now?"
+    if (q.includes('what time is it')) {
+      if (turnLength === 1) {
+        return {
+          provider: 'mock',
+          toolCalls: [{
+            id: 'mock-time-tool',
+            name: 'getCurrentDateTime',
+            args: {}
+          }]
+        };
+      }
+      return {
+        provider: 'mock',
+        text: "The current server date and time is 2026-07-09 19:40:00 UTC."
+      };
+    }
+
     // Default mock response
     return {
       provider: 'mock',
@@ -295,16 +434,33 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
       throw new Error(`Unsupported provider: ${providerName}`);
     }
     console.log(`[Orchestrator] Attempting generation with provider: ${providerName}`);
-    return await withTimeout(
-      provModule.generateResponse({
+    
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, AI_CONFIG.REQUEST_TIMEOUT_MS);
+
+    try {
+      const result = await provModule.generateResponse({
         messages,
         systemPrompt,
         tools,
-        maxTokens: AI_CONFIG.MAX_OUTPUT_TOKENS
-      }),
-      AI_CONFIG.REQUEST_TIMEOUT_MS,
-      `${providerName} request timed out.`
-    );
+        maxTokens: AI_CONFIG.MAX_OUTPUT_TOKENS,
+        signal
+      });
+      clearTimeout(timeoutId);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (signal.aborted || error.category === 'Timeout' || error.message?.includes('timed out')) {
+        const err = new Error(`${providerName} request timed out.`);
+        err.category = 'Timeout';
+        throw err;
+      }
+      throw error;
+    }
   };
 
   try {

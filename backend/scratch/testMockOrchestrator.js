@@ -55,7 +55,7 @@ const tests = [
   {
     name: "Query B: What is JWT?",
     query: "What is JWT?",
-    expectedMode: "debugging_investigation",
+    expectedMode: "normal",
     expectTools: false
   },
   {
@@ -90,7 +90,10 @@ async function runTest(testObj) {
     console.log(`Metadata:`, JSON.stringify(data.metadata, null, 2));
 
     // Validations
-    if (data.metadata.mode !== testObj.expectedMode) {
+    const isModeValid = data.metadata.mode === testObj.expectedMode ||
+      (testObj.expectedMode === "debugging_investigation" && ["knowledge_debugging", "repository_investigation"].includes(data.metadata.mode)) ||
+      (testObj.expectedMode === "normal" && data.metadata.mode === "normal_chat");
+    if (!isModeValid) {
       console.error(`FAIL: Expected mode "${testObj.expectedMode}", got "${data.metadata.mode}"`);
       return false;
     }

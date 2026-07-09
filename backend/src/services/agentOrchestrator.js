@@ -3,89 +3,123 @@ import { generateResponse } from '../providers/providerInterface.js';
 import { getMcpClient, resetMcpClient } from './mcpClient.js';
 import { AI_CONFIG } from '../utils/config.js';
 import { buildDeterministicFallback } from '../providers/geminiProvider.js';
+import { isLogStructured } from '../utils/logParser.js';
 
 const MECHAMARU_SYSTEM_INSTRUCTION =
   "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
-  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode) and local Git history tools (getRecentCommits, inspectCommit).\n\n" +
+  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), and a log-parsing tool (parseErrorLog).\n\n" +
   "STRICT RULES FOR TOOL USE:\n" +
-  "1. Only use codebase/Git tools when the question is about THIS connected codebase's actual implementation or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today').\n" +
+  "1. Only use codebase/Git/log-parsing tools when the question is about THIS connected codebase's actual implementation, errors, or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today', or when a stack trace/error log is pasted).\n" +
   "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
-  "3. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
-  "4. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
-  "5. If you have unused tool calls remaining and have not yet found direct evidence for your claim, you must continue investigating rather than presenting a guess as an answer.\n" +
-  "6. If you exhaust your tool-call budget without finding evidence, your final answer must clearly state 'No evidence of X was found in the inspected files' rather than a hedged guess.\n" +
+  "3. If the user's message contains a pasted error log or stack trace, you MUST call parseErrorLog on that exact text before speculating about the cause.\n" +
+  "4. After parsing, if stackFrames reference files, you must decide whether to use readFile/searchCode to confirm whether those files exist in the repository and what they currently contain. Do not assume stack trace file paths are accurate without checking. If a stack frame references a file that does not exist in the repository, you must state that explicitly rather than fabricating an explanation.\n" +
+  "5. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
+  "6. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
   "7. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n\n" +
   "FINAL RESPONSE FORMATS:\n" +
-  "1. For debugging investigations (when debugging context was found or you are investigating a bug/failure symptom): your final answer MUST be structured exactly as:\n\n" +
-  "Hypothesis\n" +
-  "<hypothesis based on retrieved RAG common causes or potential codebase issues>\n\n" +
-  "Evidence\n" +
-  "- Code: <actual code evidence if inspected, or 'No repository evidence was gathered for this answer' if none>\n" +
-  "- Recent changes: <actual commit evidence if inspected, or 'No relevant recent changes found'>\n\n" +
-  "Assessment\n" +
-  "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis>\n\n" +
-  "Confidence\n" +
+  "1. For debugging and log investigations (when debugging context was found, you are investigating a bug/failure symptom, or a log/stack trace is pasted): your final answer MUST be structured exactly as:\n\n" +
+  "Hypothesis\n\n" +
+  "<hypothesis based on retrieved RAG common causes, parsed log details, or potential codebase issues>\n\n" +
+  "Evidence\n\n" +
+  "<evidence lines, exactly formatted as follows. Omit the line entirely if that type of evidence was not gathered. NEVER write 'not checked' or 'No repository evidence...'>\n" +
+  "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
+  "- Code: <actual code evidence if inspected>\n" +
+  "- Recent changes: <actual commit evidence if inspected>\n\n" +
+  "Assessment\n\n" +
+  "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis. If a stack frame references a file that does not exist in this repository, explicitly mention that here>\n\n" +
+  "Confidence\n\n" +
   "High / Medium / Low\n\n" +
-  "Note: If no Git tools were used during the turn, omit the '- Recent changes:' line entirely from the Evidence section.\n\n" +
   "2. For other repository codebase investigations (where is X configured etc.): your final answer MUST be concise and structured exactly as:\n\n" +
-  "Likely Answer / Likely Cause\n" +
+  "Likely Answer / Likely Cause\n\n" +
   "<direct answer based only on inspected evidence>\n\n" +
-  "Evidence\n" +
+  "Evidence\n\n" +
   "- <repository-relative file path and relevant function/line evidence>\n\n" +
-  "Confidence\n" +
+  "Confidence\n\n" +
   "High / Medium / Low\n\n" +
   "3. General conceptual questions (e.g. 'what is a git commit') should be answered directly and concisely without any of these structured formats.";
 
 
 let globalHistory = [];
 
-function isRepositoryInvestigation(query) {
+function routeRequest(query, debuggingMatches = []) {
+  if (isLogStructured(query)) {
+    return "log_investigation";
+  }
   const q = query.toLowerCase().trim();
 
-  // Explicitly ignore simple general definitions to keep general chat lightweight
-  const generalExclusions = [
-    /^what is (javascript|js|express|expressjs|node|nodejs|rest|rag|embeddings|jwt|git|html|css)(\?)?$/,
-    /^explain (jwt|rest|javascript|js|express|expressjs|node|nodejs|rag|embeddings|git|html|css)$/,
-    /^who developed (node|nodejs|javascript|python)(\?)?$/
+  // 1. Check for change_investigation first (questions about what changed, commits, recent edits, git history)
+  const changePatterns = [
+    /\b(changed|change|commit|commits|git history|recent edits|last commit|recently)\b/,
+    /\bwhy did .* start failing after.*\b/
   ];
-  
+  if (changePatterns.some(regex => regex.test(q))) {
+    // Make sure conceptual questions like "what is a git commit?" are NOT routed to change_investigation
+    const conceptualExclusions = [
+      /^what is (a )?git commit(\?)?$/,
+      /^explain git commit(s)?(\?)?$/
+    ];
+    if (!conceptualExclusions.some(regex => regex.test(q))) {
+      return "change_investigation";
+    }
+  }
+
+  const debuggingPatterns = [
+    /\b(startup|fail|fails|failing|failed|crash|crashes|crashed|error|errors|exception|econnrefused|undefined during startup|broke|broken|bug|issue|not working|timeout|timeouts)\b/
+  ];
+  if (debuggingPatterns.some(regex => regex.test(q))) {
+    const requestsCodebaseCheck = /\b(investigate|check|search|find|where|show|code|implementation|files|repository|repo|github)\b/i.test(q);
+    if (!requestsCodebaseCheck) {
+      if (debuggingMatches && debuggingMatches.length > 0) {
+        return "knowledge_debugging";
+      }
+      if (/\b(this|my|project|backend|app|server|codebase|login|db|database|auth|connection|env)\b/.test(q)) {
+        return "knowledge_debugging";
+      }
+    }
+  }
+
+  // 3. Check for utility_tool (calculator arithmetic, date/time)
+  const timePatterns = [
+    /\b(what time is it|current time|current date|what is today('s)? date|time right now)\b/
+  ];
+  if (timePatterns.some(regex => regex.test(q))) {
+    return "utility_tool";
+  }
+  const calcPatterns = [
+    /\b(calculate|add|subtract|multiply|multiplied by|divided by|plus|minus|times)\b/
+  ];
+  if (calcPatterns.some(regex => regex.test(q)) && /\d+/.test(q)) {
+    return "utility_tool";
+  }
+
+  // 4. Check for normal_chat exclusions (general conceptual definitions, greetings, simple non-code queries)
+  const generalExclusions = [
+    /^what is (javascript|js|express|expressjs|node|nodejs|rest|rag|embeddings|jwt|git|html|css|cors)(\?)?$/,
+    /^explain (jwt|rest|javascript|js|express|expressjs|node|nodejs|rag|embeddings|git|html|css|cors)$/,
+    /^who developed (node|nodejs|javascript|python)(\?)?$/,
+    /^(hi|hello|hey|good morning|good afternoon|good evening|who are you)(\?)?$/
+  ];
   if (generalExclusions.some(regex => regex.test(q))) {
-    return false;
+    return "normal_chat";
   }
 
-  // Exclude math/time queries from being classified as repository queries
-  const hasMathKeywords = /\b(calculate|multiply|divided|minus|plus|times|add|subtract|sum|arithmetic)\b/.test(q);
-  const hasMathSymbols = /[\d\s]+[\+\-\*\/\x\=]+[\d\s]+/.test(q) || /[\+\-\*\/]/.test(q);
-  const hasTimeKeywords = /\b(time|date|clock|today|timezone|now)\b/.test(q);
-  if (hasMathKeywords || hasMathSymbols || hasTimeKeywords) {
-    return false;
-  }
-
-  // Broad indicators of codebase / project / file structure / implementation
-  const indicators = [
+  // 5. Check for repository_investigation (specific codebase/architecture queries)
+  const repoIndicators = [
     /\b(this|the|my|current)\b.*\b(repo|repository|codebase|backend|project|app|server|workspace|directory|files|src|folders)\b/,
     /\b(login|chat|auth|api|db|database|route|endpoint|controller|service|middleware|config|configuration|provider|handler|orchestrator|server\.js|package\.json|env|port|express)\b/,
-    /\b(startup|start|fail|crash|error|listen|port)\b/,
-    /\b(enforced|defined|configured|implemented|called|runs|enforces|handles)\b/,
-    /\b(where|how|why)\b.*\b(defined|configured|implemented|stored|written|saved|set|called|used|structured|organized|enforced)\b/,
-    /\b(travel|flow|reach|path|journey|message|history)\b/
+    /\b(where|how|why|what)\b.*\b(defined|configured|implemented|stored|written|saved|set|called|used|structured|organized|enforced|travel|flow|reach|path|journey)\b/
   ];
-
-  // Specific project-specific terms/files
-  const keywords = [
+  const repoKeywords = [
     'app.listen', 'max_user_message_chars', 'max_context_chars', 'agentorchestrator',
     'mcpclient', 'mcpserver', 'providerinterface', 'geminiprovider', 'openaiprovider',
-    'localrepoprovider', 'repoprovider'
+    'localrepoprovider', 'repoprovider', 'login route', 'jwt secret', 'database connection'
   ];
+  if (repoIndicators.some(regex => regex.test(q)) || repoKeywords.some(kw => q.includes(kw))) {
+    return "repository_investigation";
+  }
 
-  const matchIndicator = indicators.some(regex => regex.test(q));
-  const matchKeyword = keywords.some(kw => q.includes(kw));
-
-  return matchIndicator || matchKeyword;
-}
-
-function requiresTool(query) {
-  return true;
+  // Default fallback: normal_chat (zero tools, no MCP init for general questions without codebase context)
+  return "normal_chat";
 }
 
 
@@ -142,19 +176,22 @@ export async function runAgentOrchestrator(message) {
   }
 
   const sessionMessages = [...globalHistory, { role: 'user', content: trimmedMessage }];
-  const needsTool = requiresTool(trimmedMessage);
+  const mode = routeRequest(trimmedMessage, debuggingMatches);
+  const needsTool = mode !== "normal_chat" && mode !== "knowledge_debugging";
 
   let finalAnswer = null;
   let responseProvider = null;
   let toolUsed = null;
 
   const repositoryToolsUsed = [];
+  const allToolsUsed = [];
   const inspectedPaths = new Set();
   const commitsInspected = new Set();
+  let logEvidence = { errorType: "", groupedOccurrences: 0, framesReferenced: [] };
 
 
   if (!needsTool) {
-    console.log(`[Orchestrator] Question classified as normal. Bypassing MCP tools.`);
+    console.log(`[Orchestrator] Question classified as ${mode}. Bypassing MCP tools.`);
     try {
       const result = await generateResponse({
         messages: sessionMessages,
@@ -165,18 +202,23 @@ export async function runAgentOrchestrator(message) {
       responseProvider = result.provider;
     } catch (error) {
       console.error("[Orchestrator] Normal chat LLM error, triggering deterministic fallback:", error.message || error);
-      finalAnswer = buildDeterministicFallback(trimmedMessage, contextText);
+      finalAnswer = buildDeterministicFallback(trimmedMessage, contextText, mode === "normal_chat" ? [] : debuggingMatches, generalMatches);
       responseProvider = "fallback";
     }
   } else {
-    console.log(`[Orchestrator] Question requires tool. Initializing MCP connection.`);
+    console.log(`[Orchestrator] Question requires tool (${mode}). Initializing MCP connection.`);
     let mcpTools = [];
     let mcpClient = null;
 
     try {
       mcpClient = await getMcpClient();
       const toolsResponse = await mcpClient.listTools();
-      mcpTools = toolsResponse.tools || [];
+      const allTools = toolsResponse.tools || [];
+      if (mode === "utility_tool") {
+        mcpTools = allTools.filter(t => !["listRepositoryFiles", "searchCode", "readFile", "getRecentCommits", "inspectCommit"].includes(t.name));
+      } else {
+        mcpTools = allTools;
+      }
     } catch (mcpError) {
       console.warn("[Orchestrator] MCP Server connection failed or unavailable. Resetting client.", mcpError.message || mcpError);
       resetMcpClient();
@@ -233,6 +275,9 @@ export async function runAgentOrchestrator(message) {
 
             console.log(`[Orchestrator] Executing tool: ${toolCall.name} with args:`, JSON.stringify(toolCall.args));
             toolUsed = toolCall.name;
+            if (!allToolsUsed.includes(toolCall.name)) {
+              allToolsUsed.push(toolCall.name);
+            }
 
             if (["listRepositoryFiles", "searchCode", "readFile", "getRecentCommits", "inspectCommit"].includes(toolCall.name)) {
               if (!repositoryToolsUsed.includes(toolCall.name)) {
@@ -277,6 +322,23 @@ export async function runAgentOrchestrator(message) {
                 }
               }
 
+              if (toolCall.name === "parseErrorLog") {
+                try {
+                  const parsed = JSON.parse(contentText);
+                  logEvidence.errorType = parsed.errorType || "";
+                  logEvidence.groupedOccurrences = parsed.groupedOccurrences || 0;
+                  if (Array.isArray(parsed.stackFrames)) {
+                    logEvidence.framesReferenced = parsed.stackFrames.map(f => ({
+                      file: f.file,
+                      line: f.line,
+                      functionName: f.functionName
+                    }));
+                  }
+                } catch (err) {
+                  console.error("[Orchestrator] Failed to parse logEvidence from parseErrorLog content:", err);
+                }
+              }
+
               sessionMessages.push({
                 role: 'tool',
                 toolCallId: toolCall.id,
@@ -310,7 +372,7 @@ export async function runAgentOrchestrator(message) {
       }
     } catch (error) {
       console.error("[Orchestrator] Agent loop error, triggering deterministic fallback:", error.message || error);
-      finalAnswer = buildDeterministicFallback(trimmedMessage, contextText);
+      finalAnswer = buildDeterministicFallback(trimmedMessage, contextText, mode === "normal_chat" ? [] : debuggingMatches, generalMatches);
       responseProvider = "fallback";
     }
   }
@@ -326,13 +388,6 @@ export async function runAgentOrchestrator(message) {
     throw new Error('Failed to generate a valid non-empty response.');
   }
 
-  let mode = "normal";
-  if (debuggingMatches.length > 0) {
-    mode = "debugging_investigation";
-  } else if (repositoryToolsUsed.length > 0 || isRepositoryInvestigation(trimmedMessage)) {
-    mode = "repository_investigation";
-  }
-
   return {
     success: true,
     answer: finalAnswer.trim(),
@@ -341,10 +396,11 @@ export async function runAgentOrchestrator(message) {
       contextFound,
       toolUsed,
       mode,
-      toolsUsed: repositoryToolsUsed,
+      toolsUsed: allToolsUsed,
       inspectedPaths: Array.from(inspectedPaths),
       debuggingMatches: debuggingMatches.map(m => m.id),
-      commitsInspected: Array.from(commitsInspected)
+      commitsInspected: Array.from(commitsInspected),
+      logEvidence
     }
   };
 }

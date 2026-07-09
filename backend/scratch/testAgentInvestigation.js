@@ -100,7 +100,7 @@ async function runTest(testObj) {
     // Check results
     if (testObj.name.includes("Test C")) {
       // Normal query should not use repository tools
-      if (data.metadata.mode !== "normal" || data.metadata.toolsUsed.length > 0) {
+      if (!["normal", "normal_chat"].includes(data.metadata.mode) || data.metadata.toolsUsed.length > 0) {
         console.error("FAIL: General question entered repository investigation mode or used repository tools.");
         return false;
       }
