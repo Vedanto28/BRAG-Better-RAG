@@ -1,0 +1,471 @@
+[
+  {
+    "id": "brag-001",
+    "category": "BRAG Project",
+    "topic": "BRAG",
+    "keywords": [
+      "brag",
+      "better rag agent",
+      "project"
+    ],
+    "content": "BRAG stands for Better RAG Agent. It is an AI assistant project that combines a React frontend, an Express backend, static RAG, language-model providers, bounded agent orchestration, MCP, and lightweight tools."
+  },
+  {
+    "id": "mechamaru-001",
+    "category": "BRAG Project",
+    "topic": "Mechamaru",
+    "keywords": [
+      "mechamaru",
+      "assistant",
+      "brag assistant"
+    ],
+    "content": "Mechamaru is the AI assistant used in the BRAG project. It answers general questions, uses retrieved BRAG knowledge when relevant, and can use approved tools for suitable tasks."
+  },
+  {
+    "id": "brag-arch-001",
+    "category": "BRAG Project",
+    "topic": "project architecture",
+    "keywords": [
+      "project architecture",
+      "architecture",
+      "brag structure"
+    ],
+    "content": "The BRAG project architecture connects a React client to an Express server. The server retrieves relevant context using static RAG, coordinates agent tool usage via MCP, and uses LLM providers like Gemini or OpenAI to format answers."
+  },
+  {
+    "id": "brag-cap-001",
+    "category": "BRAG Project",
+    "topic": "current capabilities",
+    "keywords": [
+      "capabilities",
+      "features",
+      "what can you do"
+    ],
+    "content": "BRAG is capable of answer-generation using Gemini or OpenAI, static RAG retrieval, bounded agentic tool-use, calculator operations, and local server time fetching."
+  },
+  {
+    "id": "brag-lim-001",
+    "category": "BRAG Project",
+    "topic": "current limitations",
+    "keywords": [
+      "limitations",
+      "restrictions",
+      "what is not supported"
+    ],
+    "content": "BRAG's limitations include a lack of persistent databases, no support for dynamic web searching, no dynamic document uploading, and dependency on pre-configured static files or local tools."
+  },
+  {
+    "id": "brag-rag-001",
+    "category": "BRAG Project",
+    "topic": "static RAG",
+    "keywords": [
+      "static rag",
+      "rag service",
+      "local retrieval"
+    ],
+    "content": "Static RAG in BRAG searches the local knowledgeBase.json file using simple keyword matching rather than complex vector embeddings or external database queries."
+  },
+  {
+    "id": "brag-orch-001",
+    "category": "BRAG Project",
+    "topic": "agent orchestrator",
+    "keywords": [
+      "agent orchestrator",
+      "orchestrator",
+      "agent loop"
+    ],
+    "content": "The agent orchestrator coordinates message routing, checks if a query needs tool execution, loads context from the RAG service, executes tools through MCP, and handles provider fallbacks."
+  },
+  {
+    "id": "brag-prov-001",
+    "category": "BRAG Project",
+    "topic": "provider layer",
+    "keywords": [
+      "provider layer",
+      "providers",
+      "llm providers"
+    ],
+    "content": "The provider layer abstracts interactions with LLMs, supporting Gemini as the primary provider and OpenAI as the secondary fallback provider."
+  },
+  {
+    "id": "brag-mcp-001",
+    "category": "BRAG Project",
+    "topic": "MCP integration",
+    "keywords": [
+      "mcp integration",
+      "mcp connection",
+      "model context protocol"
+    ],
+    "content": "MCP integration allows the model to communicate with external tools via the Model Context Protocol, hosting a local SSE server and a client connection to call tools."
+  },
+  {
+    "id": "ai-001",
+    "category": "RAG and AI",
+    "topic": "artificial intelligence",
+    "keywords": [
+      "artificial intelligence",
+      "ai",
+      "artificial intelligence definition"
+    ],
+    "content": "Artificial Intelligence (AI) refers to the simulation of human intelligence in machines that are programmed to think, learn, and solve problems."
+  },
+  {
+    "id": "ml-001",
+    "category": "RAG and AI",
+    "topic": "machine learning",
+    "keywords": [
+      "machine learning",
+      "ml",
+      "learning algorithm"
+    ],
+    "content": "Machine learning is a subset of AI focused on building systems that learn from data and improve their performance over time without explicit programming."
+  },
+  {
+    "id": "llm-001",
+    "category": "RAG and AI",
+    "topic": "large language models",
+    "keywords": [
+      "large language models",
+      "llm",
+      "llms",
+      "language models"
+    ],
+    "content": "Large Language Models (LLMs) are deep learning models trained on vast amounts of text data to understand, generate, and complete natural language responses."
+  },
+  {
+    "id": "rag-002",
+    "category": "RAG and AI",
+    "topic": "RAG",
+    "keywords": [
+      "rag",
+      "retrieval augmented generation",
+      "retrieval-augmented"
+    ],
+    "content": "Retrieval-Augmented Generation (RAG) is a technique that enhances an LLM's answers by retrieving factual information from external sources to use as context."
+  },
+  {
+    "id": "retrieval-001",
+    "category": "RAG and AI",
+    "topic": "retrieval",
+    "keywords": [
+      "retrieval",
+      "retrieve",
+      "information retrieval"
+    ],
+    "content": "Retrieval is the process of searching a database, document collection, or knowledge source to find the most relevant pieces of information for a given query."
+  },
+  {
+    "id": "augmentation-001",
+    "category": "RAG and AI",
+    "topic": "augmentation",
+    "keywords": [
+      "augmentation",
+      "augment",
+      "enrich prompt"
+    ],
+    "content": "Augmentation is the phase in RAG where retrieved facts are formatted and injected into the prompt alongside the user's original query."
+  },
+  {
+    "id": "generation-001",
+    "category": "RAG and AI",
+    "topic": "generation",
+    "keywords": [
+      "generation",
+      "generate",
+      "text generation"
+    ],
+    "content": "Generation is the final stage of RAG, where the LLM processes the augmented prompt (context + query) to construct a coherent, grounded response."
+  },
+  {
+    "id": "hallucination-001",
+    "category": "RAG and AI",
+    "topic": "hallucination",
+    "keywords": [
+      "hallucination",
+      "hallucinations",
+      "ai lying"
+    ],
+    "content": "Hallucination occurs when a generative model outputs text that is factually incorrect, nonsensical, or unsupported by any input data or context."
+  },
+  {
+    "id": "prompt-eng-001",
+    "category": "RAG and AI",
+    "topic": "prompt engineering",
+    "keywords": [
+      "prompt engineering",
+      "prompting",
+      "system instruction"
+    ],
+    "content": "Prompt engineering is the practice of designing and refining inputs (prompts) to guide generative models toward producing accurate and desired outputs."
+  },
+  {
+    "id": "context-win-001",
+    "category": "RAG and AI",
+    "topic": "context window",
+    "keywords": [
+      "context window",
+      "context length",
+      "max context"
+    ],
+    "content": "A context window represents the maximum number of tokens (words/characters) a model can process in a single request, including prompt and response."
+  },
+  {
+    "id": "tokens-001",
+    "category": "RAG and AI",
+    "topic": "tokens",
+    "keywords": [
+      "tokens",
+      "tokenization",
+      "word segments"
+    ],
+    "content": "Tokens are the basic building blocks of text processed by LLMs, representing words, subwords, or characters depending on the tokenizer used."
+  },
+  {
+    "id": "embeddings-001",
+    "category": "RAG and AI",
+    "topic": "embeddings",
+    "keywords": [
+      "embeddings",
+      "embedding vectors",
+      "text vectors"
+    ],
+    "content": "Embeddings turn text into numerical vectors for similarity search, capturing semantic meaning and enabling mathematical comparison."
+  },
+  {
+    "id": "semantic-001",
+    "category": "RAG and AI",
+    "topic": "semantic search",
+    "keywords": [
+      "semantic search",
+      "vector search",
+      "meaning match"
+    ],
+    "content": "Semantic search retrieves information by understanding the conceptual meaning of a query, rather than relying strictly on exact keyword matching."
+  },
+  {
+    "id": "vector-db-001",
+    "category": "RAG and AI",
+    "topic": "vector database",
+    "keywords": [
+      "vector database",
+      "vector store",
+      "pinecone",
+      "chroma"
+    ],
+    "content": "A vector database is a specialized storage engine optimized to store, index, and query high-dimensional vector embeddings quickly for similarity search."
+  },
+  {
+    "id": "chunking-001",
+    "category": "RAG and AI",
+    "topic": "chunking",
+    "keywords": [
+      "chunking",
+      "chunks",
+      "splitting text"
+    ],
+    "content": "Chunking is the process of breaking down long source documents into smaller, manageable text sections before indexing them for retrieval."
+  },
+  {
+    "id": "dynamic-rag-001",
+    "category": "RAG and AI",
+    "topic": "dynamic RAG",
+    "keywords": [
+      "dynamic rag",
+      "agentic rag",
+      "live retrieval"
+    ],
+    "content": "Dynamic RAG retrieves information interactively by allowing an agent to decide when, where, and what to query based on user interactions."
+  },
+  {
+    "id": "agentic-ai-001",
+    "category": "RAG and AI",
+    "topic": "agentic AI",
+    "keywords": [
+      "agentic ai",
+      "ai agent",
+      "autonomous agents"
+    ],
+    "content": "Agentic AI refers to systems designed to act autonomously, make plans, run loops, and execute external tools to achieve specific user goals."
+  },
+  {
+    "id": "node-001",
+    "category": "Backend Development",
+    "topic": "Node.js",
+    "keywords": [
+      "node.js",
+      "nodejs",
+      "javascript runtime",
+      "backend node"
+    ],
+    "content": "Node.js is an open-source, cross-platform JavaScript runtime built on Chrome's V8 engine that executes JavaScript code outside of a web browser."
+  },
+  {
+    "id": "express-001",
+    "category": "Backend Development",
+    "topic": "Express.js",
+    "keywords": [
+      "express.js",
+      "expressjs",
+      "web framework"
+    ],
+    "content": "Express.js is a minimal and flexible Node.js web application framework that provides a robust set of features for building single and multi-page web applications and REST APIs."
+  },
+  {
+    "id": "rest-api-001",
+    "category": "Backend Development",
+    "topic": "REST API",
+    "keywords": [
+      "rest api",
+      "restful",
+      "api endpoints"
+    ],
+    "content": "A REST API is an application programming interface that conforms to REST architectural constraints, utilizing standard HTTP methods like GET, POST, PUT, and DELETE."
+  },
+  {
+    "id": "middleware-001",
+    "category": "Backend Development",
+    "topic": "middleware",
+    "keywords": [
+      "middleware",
+      "express middleware"
+    ],
+    "content": "Middleware is code that executes between receiving a request and sending a response in Express applications, often used for parsing, logging, or authentication."
+  },
+  {
+    "id": "cors-001",
+    "category": "Backend Development",
+    "topic": "CORS",
+    "keywords": [
+      "cors",
+      "cross origin",
+      "cross-origin resource sharing"
+    ],
+    "content": "Cross-Origin Resource Sharing (CORS) is a security mechanism that uses HTTP headers to allow or restrict resources on a web page to be requested from another domain."
+  },
+  {
+    "id": "env-vars-001",
+    "category": "Backend Development",
+    "topic": "environment variables",
+    "keywords": [
+      "environment variables",
+      "dotenv",
+      ".env",
+      "secrets"
+    ],
+    "content": "Environment variables are key-value pairs configured outside the code, used to manage deployment settings, ports, and sensitive API credentials."
+  },
+  {
+    "id": "api-keys-001",
+    "category": "Backend Development",
+    "topic": "API keys",
+    "keywords": [
+      "api keys",
+      "api credentials",
+      "auth token"
+    ],
+    "content": "An API key is a unique identifier used to authenticate a client application requesting access to an upstream web service or API."
+  },
+  {
+    "id": "http-req-001",
+    "category": "Backend Development",
+    "topic": "HTTP request",
+    "keywords": [
+      "http request",
+      "request headers",
+      "request body"
+    ],
+    "content": "An HTTP request is sent by a client to a server, consisting of a request line (method, URL, version), headers, and an optional body containing payload."
+  },
+  {
+    "id": "http-res-001",
+    "category": "Backend Development",
+    "topic": "HTTP response",
+    "keywords": [
+      "http response",
+      "status code",
+      "response body"
+    ],
+    "content": "An HTTP response is sent by a server back to a client, consisting of a status code (e.g., 200 OK, 404 Not Found), headers, and the response body."
+  },
+  {
+    "id": "json-001",
+    "category": "Backend Development",
+    "topic": "JSON",
+    "keywords": [
+      "json",
+      "javascript object notation",
+      "json parsing"
+    ],
+    "content": "JSON, or JavaScript Object Notation, is a lightweight, text-based, language-independent data exchange format that is easy for humans to read and write."
+  },
+  {
+    "id": "react-001",
+    "category": "Project Technology",
+    "topic": "React",
+    "keywords": [
+      "react",
+      "reactjs",
+      "frontend library",
+      "ui components"
+    ],
+    "content": "React is a popular open-source JavaScript library developed by Meta for building user interfaces, specifically for single-page applications using components."
+  },
+  {
+    "id": "vite-001",
+    "category": "Project Technology",
+    "topic": "Vite",
+    "keywords": [
+      "vite",
+      "vitejs",
+      "build tool",
+      "frontend bundler"
+    ],
+    "content": "Vite is a modern frontend build tool that offers extremely fast development server startup and optimized production builds via Rollup."
+  },
+  {
+    "id": "gemini-001",
+    "category": "Project Technology",
+    "topic": "Gemini",
+    "keywords": [
+      "gemini",
+      "google gemini",
+      "gemini api",
+      "gemini-2.5-flash"
+    ],
+    "content": "Gemini is a family of multimodal generative AI models developed by Google, used in this project as the primary LLM provider via the @google/generative-ai SDK."
+  },
+  {
+    "id": "openai-002",
+    "category": "Project Technology",
+    "topic": "OpenAI",
+    "keywords": [
+      "openai",
+      "gpt-4o-mini",
+      "openai api"
+    ],
+    "content": "OpenAI is an AI research company that provides advanced language models, used in this project as the secondary LLM fallback provider."
+  },
+  {
+    "id": "mcp-002",
+    "category": "Project Technology",
+    "topic": "MCP",
+    "keywords": [
+      "mcp",
+      "model context protocol",
+      "mcp server",
+      "mcp client"
+    ],
+    "content": "Model Context Protocol (MCP) is an open standard that enables AI models to safely access tools, files, and external resources via clients and servers."
+  },
+  {
+    "id": "tool-calling-001",
+    "category": "Project Technology",
+    "topic": "tool calling",
+    "keywords": [
+      "tool calling",
+      "function calling",
+      "mcp tools"
+    ],
+    "content": "Tool calling is an LLM capability where the model outputs structured arguments to run a registered function, allowing integration with code execution."
+  }
+]
