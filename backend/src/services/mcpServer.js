@@ -1,6 +1,30 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { retrieveContext } from "./rag.js";
+import { LocalRepoProvider } from "../providers/localRepoProvider.js";
+import { LocalGitProvider } from "../providers/localGitProvider.js";
+
+let repoProviderInstance = null;
+function getRepoProvider() {
+  if (repoProviderInstance) return repoProviderInstance;
+  const rootPath = process.env.REPO_ROOT_PATH;
+  if (!rootPath) {
+    throw new Error("REPO_ROOT_PATH environment variable is not set.");
+  }
+  repoProviderInstance = new LocalRepoProvider(rootPath);
+  return repoProviderInstance;
+}
+
+let gitProviderInstance = null;
+function getGitProvider() {
+  if (gitProviderInstance) return gitProviderInstance;
+  const rootPath = process.env.REPO_ROOT_PATH;
+  if (!rootPath) {
+    throw new Error("REPO_ROOT_PATH environment variable is not set.");
+  }
+  gitProviderInstance = new LocalGitProvider(rootPath);
+  return gitProviderInstance;
+}
 
 const server = new Server(
   {
@@ -59,8 +83,88 @@ const toolsList = [
       },
       required: ["query"]
     }
+  },
+  {
+    name: "listRepositoryFiles",
+    description: "List files and directories in the repository under a given sub-path (relative to the repository root). This tool is read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        subPath: {
+          type: "string",
+          description: "Optional relative sub-path within the repository to list files from. If omitted or empty, lists from the repository root."
+        }
+      }
+    }
+  },
+  {
+    name: "readFile",
+    description: "Read the contents of a text file in the repository (relative to the repository root). Returns file contents as plain text. Caps the output at 50KB or 1000 lines, appending a warning if truncated. This tool is read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "The relative path of the file to read."
+        }
+      },
+      required: ["path"]
+    }
+  },
+  {
+    name: "searchCode",
+    description: "Search for a text query across files in the repository recursively. Caps results at 30 matches. This tool is read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The text string to search for."
+        },
+        extensions: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Optional list of file extensions to restrict the search to (e.g. ['js', 'json'])."
+        }
+      },
+      required: ["query"]
+    }
+  },
+  {
+    name: "getRecentCommits",
+    description: "Retrieve a list of recent commits from the repository (read-only, local history, secrets are redacted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        since: {
+          type: "string",
+          description: "Optional date or relative time (e.g. '1.day.ago', '2026-07-01') to filter commits."
+        },
+        limit: {
+          type: "number",
+          description: "Optional maximum number of commits to retrieve (default 10, max 30)."
+        }
+      }
+    }
+  },
+  {
+    name: "inspectCommit",
+    description: "Inspect details of a specific commit by hash, including files changed and redacted unified diff (read-only, local history, secrets are redacted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        commitHash: {
+          type: "string",
+          description: "The full or short commit hash (hexadecimal string) to inspect."
+        }
+      },
+      required: ["commitHash"]
+    }
   }
 ];
+
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -137,6 +241,81 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ],
         };
       }
+      case "listRepositoryFiles": {
+        const { subPath } = args ?? {};
+        const provider = getRepoProvider();
+        const files = await provider.listFiles(subPath);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ files }, null, 2),
+            },
+          ],
+        };
+      }
+      case "readFile": {
+        const { path: filePath } = args ?? {};
+        if (!filePath || typeof filePath !== "string") {
+          throw new Error("path parameter is required and must be a string.");
+        }
+        const provider = getRepoProvider();
+        const content = await provider.readFile(filePath);
+        return {
+          content: [
+            {
+              type: "text",
+              text: content,
+            },
+          ],
+        };
+      }
+      case "searchCode": {
+        const { query, extensions } = args ?? {};
+        if (!query || typeof query !== "string") {
+          throw new Error("query parameter is required and must be a string.");
+        }
+        const provider = getRepoProvider();
+        const result = await provider.searchCode(query, { extensions });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+      case "getRecentCommits": {
+        const { since, limit } = args ?? {};
+        const provider = getGitProvider();
+        const commits = await provider.getRecentCommits({ since, limit });
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ commits }, null, 2),
+            },
+          ],
+        };
+      }
+      case "inspectCommit": {
+        const { commitHash } = args ?? {};
+        if (!commitHash || typeof commitHash !== "string") {
+          throw new Error("commitHash parameter is required and must be a string.");
+        }
+        const provider = getGitProvider();
+        const details = await provider.inspectCommit(commitHash);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(details, null, 2),
+            },
+          ],
+        };
+      }
+
       default:
         throw new Error(`Tool not found: ${name}`);
     }

@@ -5,26 +5,87 @@ import { AI_CONFIG } from '../utils/config.js';
 import { buildDeterministicFallback } from '../providers/geminiProvider.js';
 
 const MECHAMARU_SYSTEM_INSTRUCTION =
-  "You are Mechamaru, the AI assistant for BRAG. Answer the user's question directly and concisely. " +
-  "Prefer 2 to 4 short sentences. Use provided knowledge-base context when it is relevant. " +
-  "If no relevant context is provided, answer using your general knowledge. Do not invent tool results.";
+  "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
+  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode) and local Git history tools (getRecentCommits, inspectCommit).\n\n" +
+  "STRICT RULES FOR TOOL USE:\n" +
+  "1. Only use codebase/Git tools when the question is about THIS connected codebase's actual implementation or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today').\n" +
+  "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
+  "3. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
+  "4. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
+  "5. If you have unused tool calls remaining and have not yet found direct evidence for your claim, you must continue investigating rather than presenting a guess as an answer.\n" +
+  "6. If you exhaust your tool-call budget without finding evidence, your final answer must clearly state 'No evidence of X was found in the inspected files' rather than a hedged guess.\n" +
+  "7. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n\n" +
+  "FINAL RESPONSE FORMATS:\n" +
+  "1. For debugging investigations (when debugging context was found or you are investigating a bug/failure symptom): your final answer MUST be structured exactly as:\n\n" +
+  "Hypothesis\n" +
+  "<hypothesis based on retrieved RAG common causes or potential codebase issues>\n\n" +
+  "Evidence\n" +
+  "- Code: <actual code evidence if inspected, or 'No repository evidence was gathered for this answer' if none>\n" +
+  "- Recent changes: <actual commit evidence if inspected, or 'No relevant recent changes found'>\n\n" +
+  "Assessment\n" +
+  "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis>\n\n" +
+  "Confidence\n" +
+  "High / Medium / Low\n\n" +
+  "Note: If no Git tools were used during the turn, omit the '- Recent changes:' line entirely from the Evidence section.\n\n" +
+  "2. For other repository codebase investigations (where is X configured etc.): your final answer MUST be concise and structured exactly as:\n\n" +
+  "Likely Answer / Likely Cause\n" +
+  "<direct answer based only on inspected evidence>\n\n" +
+  "Evidence\n" +
+  "- <repository-relative file path and relevant function/line evidence>\n\n" +
+  "Confidence\n" +
+  "High / Medium / Low\n\n" +
+  "3. General conceptual questions (e.g. 'what is a git commit') should be answered directly and concisely without any of these structured formats.";
+
 
 let globalHistory = [];
 
-function requiresTool(query) {
-  const q = query.toLowerCase();
+function isRepositoryInvestigation(query) {
+  const q = query.toLowerCase().trim();
+
+  // Explicitly ignore simple general definitions to keep general chat lightweight
+  const generalExclusions = [
+    /^what is (javascript|js|express|expressjs|node|nodejs|rest|rag|embeddings|jwt|git|html|css)(\?)?$/,
+    /^explain (jwt|rest|javascript|js|express|expressjs|node|nodejs|rag|embeddings|git|html|css)$/,
+    /^who developed (node|nodejs|javascript|python)(\?)?$/
+  ];
   
-  // Check for calculator indicators
+  if (generalExclusions.some(regex => regex.test(q))) {
+    return false;
+  }
+
+  // Exclude math/time queries from being classified as repository queries
   const hasMathKeywords = /\b(calculate|multiply|divided|minus|plus|times|add|subtract|sum|arithmetic)\b/.test(q);
   const hasMathSymbols = /[\d\s]+[\+\-\*\/\x\=]+[\d\s]+/.test(q) || /[\+\-\*\/]/.test(q);
-  
-  // Check for date/time indicators
   const hasTimeKeywords = /\b(time|date|clock|today|timezone|now)\b/.test(q);
+  if (hasMathKeywords || hasMathSymbols || hasTimeKeywords) {
+    return false;
+  }
 
-  // Check for explicit knowledge-base search
-  const hasSearchKeywords = /\b(search|knowledge\s+base|kb|find\s+in\s+kb|retrieve\s+context)\b/.test(q);
-  
-  return hasMathKeywords || hasMathSymbols || hasTimeKeywords || hasSearchKeywords;
+  // Broad indicators of codebase / project / file structure / implementation
+  const indicators = [
+    /\b(this|the|my|current)\b.*\b(repo|repository|codebase|backend|project|app|server|workspace|directory|files|src|folders)\b/,
+    /\b(login|chat|auth|api|db|database|route|endpoint|controller|service|middleware|config|configuration|provider|handler|orchestrator|server\.js|package\.json|env|port|express)\b/,
+    /\b(startup|start|fail|crash|error|listen|port)\b/,
+    /\b(enforced|defined|configured|implemented|called|runs|enforces|handles)\b/,
+    /\b(where|how|why)\b.*\b(defined|configured|implemented|stored|written|saved|set|called|used|structured|organized|enforced)\b/,
+    /\b(travel|flow|reach|path|journey|message|history)\b/
+  ];
+
+  // Specific project-specific terms/files
+  const keywords = [
+    'app.listen', 'max_user_message_chars', 'max_context_chars', 'agentorchestrator',
+    'mcpclient', 'mcpserver', 'providerinterface', 'geminiprovider', 'openaiprovider',
+    'localrepoprovider', 'repoprovider'
+  ];
+
+  const matchIndicator = indicators.some(regex => regex.test(q));
+  const matchKeyword = keywords.some(kw => q.includes(kw));
+
+  return matchIndicator || matchKeyword;
+}
+
+function requiresTool(query) {
+  return true;
 }
 
 
@@ -44,11 +105,27 @@ export async function runAgentOrchestrator(message) {
 
   console.log(`[Orchestrator] Retrieving static RAG context for query: "${trimmedMessage}"`);
   const context = await retrieveContext(trimmedMessage);
-  const contextFound = context.length > 0;
+  
+  const generalMatches = context;
+  const debuggingMatches = context.debuggingMatches || [];
+  const contextFound = generalMatches.length > 0 || debuggingMatches.length > 0;
 
-  let contextText = contextFound
-    ? context.map((entry) => `${entry.topic}: ${entry.content}`).join('\n')
-    : '';
+  let contextText = '';
+  if (generalMatches.length > 0) {
+    contextText += `General BRAG Knowledge:\n` + generalMatches.map((entry) => `${entry.topic}: ${entry.content}`).join('\n');
+  }
+  if (debuggingMatches.length > 0) {
+    if (contextText) contextText += '\n\n';
+    contextText += `General Debugging Hypotheses & Search Hints (guidance only, not confirmed for this repo):\n` +
+      debuggingMatches.map((entry) => {
+        return `ID: ${entry.id}\n` +
+               `Category: ${entry.category}\n` +
+               `Symptoms: ${entry.symptoms.join(', ')}\n` +
+               `Common Causes: ${entry.commonCauses.join(', ')}\n` +
+               `Investigation Steps: ${entry.investigationSteps.join(', ')}\n` +
+               `Code Search Hints: ${entry.codeSearchHints.join(', ')}`;
+      }).join('\n\n');
+  }
 
   if (contextFound && contextText.length > AI_CONFIG.MAX_CONTEXT_CHARS) {
     console.warn(`[Orchestrator] Context length (${contextText.length}) exceeded limit. Truncating to ${AI_CONFIG.MAX_CONTEXT_CHARS}`);
@@ -56,8 +133,9 @@ export async function runAgentOrchestrator(message) {
   }
 
   const fullSystemPrompt = contextFound
-    ? `${MECHAMARU_SYSTEM_INSTRUCTION}\n\nRetrieved BRAG Knowledge:\n${contextText}`
+    ? `${MECHAMARU_SYSTEM_INSTRUCTION}\n\nRetrieved Context:\n${contextText}`
     : MECHAMARU_SYSTEM_INSTRUCTION;
+
 
   if (globalHistory.length > AI_CONFIG.MAX_HISTORY_MESSAGES) {
     globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
@@ -69,6 +147,11 @@ export async function runAgentOrchestrator(message) {
   let finalAnswer = null;
   let responseProvider = null;
   let toolUsed = null;
+
+  const repositoryToolsUsed = [];
+  const inspectedPaths = new Set();
+  const commitsInspected = new Set();
+
 
   if (!needsTool) {
     console.log(`[Orchestrator] Question classified as normal. Bypassing MCP tools.`);
@@ -151,6 +234,22 @@ export async function runAgentOrchestrator(message) {
             console.log(`[Orchestrator] Executing tool: ${toolCall.name} with args:`, JSON.stringify(toolCall.args));
             toolUsed = toolCall.name;
 
+            if (["listRepositoryFiles", "searchCode", "readFile", "getRecentCommits", "inspectCommit"].includes(toolCall.name)) {
+              if (!repositoryToolsUsed.includes(toolCall.name)) {
+                repositoryToolsUsed.push(toolCall.name);
+              }
+              if (toolCall.name === "readFile" && toolCall.args?.path) {
+                inspectedPaths.add(toolCall.args.path);
+              }
+              if (toolCall.name === "listRepositoryFiles" && toolCall.args?.subPath) {
+                inspectedPaths.add(toolCall.args.subPath);
+              }
+              if (toolCall.name === "inspectCommit" && toolCall.args?.commitHash) {
+                const shortHash = toolCall.args.commitHash.slice(0, 7).toLowerCase();
+                commitsInspected.add(shortHash);
+              }
+            }
+
             try {
               if (!mcpClient) {
                 throw new Error("MCP client is not connected.");
@@ -162,6 +261,21 @@ export async function runAgentOrchestrator(message) {
 
               const contentText = (toolResult.content || []).map(c => c.text).join('\n');
               console.log(`[Orchestrator] Tool result:`, contentText);
+
+              if (toolCall.name === "searchCode") {
+                try {
+                  const data = JSON.parse(contentText);
+                  if (data && Array.isArray(data.matches)) {
+                    for (const match of data.matches) {
+                      if (match.path) {
+                        inspectedPaths.add(match.path);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Ignore parsing error
+                }
+              }
 
               sessionMessages.push({
                 role: 'tool',
@@ -212,13 +326,25 @@ export async function runAgentOrchestrator(message) {
     throw new Error('Failed to generate a valid non-empty response.');
   }
 
+  let mode = "normal";
+  if (debuggingMatches.length > 0) {
+    mode = "debugging_investigation";
+  } else if (repositoryToolsUsed.length > 0 || isRepositoryInvestigation(trimmedMessage)) {
+    mode = "repository_investigation";
+  }
+
   return {
     success: true,
     answer: finalAnswer.trim(),
     metadata: {
       provider: responseProvider || "unknown",
       contextFound,
-      toolUsed
+      toolUsed,
+      mode,
+      toolsUsed: repositoryToolsUsed,
+      inspectedPaths: Array.from(inspectedPaths),
+      debuggingMatches: debuggingMatches.map(m => m.id),
+      commitsInspected: Array.from(commitsInspected)
     }
   };
 }
