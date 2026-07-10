@@ -37,12 +37,22 @@ app.get('/api/sse', async (req, res) => {
   const transport = new SSEServerTransport('/api/messages', res);
   mcpTransports[transport.sessionId] = transport;
 
-  res.on('close', () => {
+  res.on('close', async () => {
     console.log(`[Express] SSE connection closed for session: ${transport.sessionId}`);
     delete mcpTransports[transport.sessionId];
+    try {
+      if (mcpServer.transport === transport) {
+        await mcpServer.close();
+      }
+    } catch (e) {}
     transport.close().catch(err => console.warn('[Express] Error closing transport:', err));
   });
 
+  try {
+    if (mcpServer.transport) {
+      await mcpServer.close();
+    }
+  } catch (e) {}
   await mcpServer.connect(transport);
 });
 

@@ -54,7 +54,11 @@ function delay(ms) {
 }
 
 export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal }) {
+  // TEST INJECTION POINT: Only reachable when TEST_GEMINI_FAIL_ALL env var is set.
+  // This is deliberately used by testResiliency.js and testOrchestratorFailures.js.
+  // If this fires outside a test context, it indicates an environment misconfiguration.
   if (process.env.TEST_GEMINI_FAIL_ALL === 'true') {
+    console.warn('[WARN] TEST_GEMINI_FAIL_ALL is active — Gemini provider is returning a mocked error. This must not fire in production.');
     const err = new Error("Mocked Gemini 503 service unavailable");
     err.category = "Quota";
     err.status = 503;
@@ -131,14 +135,19 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     }
 
     attempts++;
-    if (global.__geminiTestTracker) {
+    // TEST INJECTION POINT: Counts Gemini attempts for testResiliency.js.
+    // global.__geminiTestTracker is only set by test files — safe to leave ungated.
+    if (typeof global.__geminiTestTracker === 'object' && global.__geminiTestTracker !== null) {
       global.__geminiTestTracker.attempts = (global.__geminiTestTracker.attempts || 0) + 1;
     }
     try {
       console.log(`[Gemini Provider] Attempt ${attempts}/${maxAttempts} to generate content...`);
       
-      // Hook for Test D
+      // TEST INJECTION POINT: Simulates a 503/503 retry sequence.
+      // Used by testResiliency.js Test C to verify retry logic.
+      // If this fires outside a test context, check TEST_GEMINI_RETRY_SEQUENCE env var.
       if (process.env.TEST_GEMINI_RETRY_SEQUENCE === 'true') {
+        console.warn('[WARN] TEST_GEMINI_RETRY_SEQUENCE is active — Gemini provider is simulating 503 errors. This must not fire in production.');
         if (attempts < 3) {
           console.log(`[TEST MOCK] Simulating 503 error for attempt ${attempts}`);
           const err = new Error("Simulated 503 Service Unavailable");
@@ -150,16 +159,20 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
         }
       }
 
-      // Hook for Test E
+      // TEST INJECTION POINT: Simulates a permanent auth error.
+      // Used by testResiliency.js Test E. Must not fire in production.
       if (process.env.TEST_GEMINI_PERMANENT_ERROR === 'true') {
+        console.warn('[WARN] TEST_GEMINI_PERMANENT_ERROR is active — Gemini provider is simulating a 401 error. This must not fire in production.');
         console.log(`[TEST MOCK] Simulating permanent error on attempt ${attempts}`);
         const err = new Error("Simulated 401 Unauthorized / Invalid API Key");
         err.status = 401;
         throw err;
       }
 
-      // Hook for Test 429
+      // TEST INJECTION POINT: Simulates a 429 rate-limit error.
+      // Used by testResiliency.js Test B to verify 429 is not retried. Must not fire in production.
       if (process.env.TEST_GEMINI_429_ERROR === 'true') {
+        console.warn('[WARN] TEST_GEMINI_429_ERROR is active — Gemini provider is simulating a 429 error. This must not fire in production.');
         console.log(`[TEST MOCK] Simulating HTTP 429 error on attempt ${attempts}`);
         const err = new Error("Simulated 429 Resource Exhausted / Rate limit exceeded");
         err.status = 429;

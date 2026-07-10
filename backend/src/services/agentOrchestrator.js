@@ -1,6 +1,6 @@
 import { retrieveContext } from './rag.js';
 import { generateResponse } from '../providers/providerInterface.js';
-import { getMcpClient, resetMcpClient } from './mcpClient.js';
+import mcpRegistry from './mcpRegistry.js';
 import { AI_CONFIG } from '../utils/config.js';
 import { buildDeterministicFallback } from '../providers/geminiProvider.js';
 import { isLogStructured } from '../utils/logParser.js';
@@ -24,7 +24,8 @@ const MECHAMARU_SYSTEM_INSTRUCTION =
   "<evidence lines, exactly formatted as follows. Omit the line entirely if that type of evidence was not gathered. NEVER write 'not checked' or 'No repository evidence...'>\n" +
   "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
   "- Code: <actual code evidence if inspected>\n" +
-  "- Recent changes: <actual commit evidence if inspected>\n\n" +
+  "- Recent changes: <actual commit evidence if inspected>\n" +
+  "- Remote/External: <actual remote/external evidence if inspected via remote tools e.g. GitHub/DevTools/Context7>\n\n" +
   "Assessment\n\n" +
   "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis. If a stack frame references a file that does not exist in this repository, explicitly mention that here>\n\n" +
   "Confidence\n\n" +
@@ -176,6 +177,8 @@ export async function runAgentOrchestrator(message) {
   }
 
   const sessionMessages = [...globalHistory, { role: 'user', content: trimmedMessage }];
+  // Route determines which evidence mode to use. normal_chat and knowledge_debugging bypass MCP
+  // entirely (no tool init, no connection cost). All other modes open the MCP connection.
   const mode = routeRequest(trimmedMessage, debuggingMatches);
   const needsTool = mode !== "normal_chat" && mode !== "knowledge_debugging";
 
@@ -188,6 +191,9 @@ export async function runAgentOrchestrator(message) {
   const inspectedPaths = new Set();
   const commitsInspected = new Set();
   let logEvidence = { errorType: "", groupedOccurrences: 0, framesReferenced: [] };
+  const externalEvidence = [];
+  let toolCallCount = 0;
+  let toolCallLimitReached = false;
 
 
   if (!needsTool) {
@@ -208,24 +214,15 @@ export async function runAgentOrchestrator(message) {
   } else {
     console.log(`[Orchestrator] Question requires tool (${mode}). Initializing MCP connection.`);
     let mcpTools = [];
-    let mcpClient = null;
 
     try {
-      mcpClient = await getMcpClient();
-      const toolsResponse = await mcpClient.listTools();
-      const allTools = toolsResponse.tools || [];
-      if (mode === "utility_tool") {
-        mcpTools = allTools.filter(t => !["listRepositoryFiles", "searchCode", "readFile", "getRecentCommits", "inspectCommit"].includes(t.name));
-      } else {
-        mcpTools = allTools;
-      }
-    } catch (mcpError) {
-      console.warn("[Orchestrator] MCP Server connection failed or unavailable. Resetting client.", mcpError.message || mcpError);
-      resetMcpClient();
+      mcpTools = await mcpRegistry.getToolsForMode(mode);
+    } catch (registryError) {
+      console.warn("[Orchestrator] MCP Registry tool discovery failed or unavailable. Resetting capability providers.", registryError.message || registryError);
+      await mcpRegistry.resetAll();
     }
 
     let stepCount = 0;
-    let toolCallCount = 0;
 
     try {
       while (stepCount < AI_CONFIG.MAX_AGENT_STEPS) {
@@ -249,9 +246,11 @@ export async function runAgentOrchestrator(message) {
           });
 
           for (const toolCall of result.toolCalls) {
-            toolCallCount++;
-            if (toolCallCount > AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST) {
-              console.warn(`[Orchestrator] Tool call limit exceeded (${AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST}). Stopping tool execution.`);
+            // Global tool budget: enforced across ALL tool types for ALL modes.
+            // This is the single gate that prevents unbounded investigation loops.
+            if (toolCallCount >= AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST) {
+              toolCallLimitReached = true;
+              console.warn(`[Orchestrator] Tool call limit exceeded (${AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST}). Blocking tool execution.`);
               sessionMessages.push({
                 role: 'tool',
                 toolCallId: toolCall.id,
@@ -260,6 +259,7 @@ export async function runAgentOrchestrator(message) {
               });
               continue;
             }
+            toolCallCount++;
 
             const toolExists = mcpTools.some(t => t.name === toolCall.name);
             if (!toolExists) {
@@ -296,10 +296,7 @@ export async function runAgentOrchestrator(message) {
             }
 
             try {
-              if (!mcpClient) {
-                throw new Error("MCP client is not connected.");
-              }
-              const toolResult = await mcpClient.callTool({
+              const { toolResult, provider: owningProvider } = await mcpRegistry.callTool({
                 name: toolCall.name,
                 arguments: toolCall.args
               });
@@ -339,6 +336,18 @@ export async function runAgentOrchestrator(message) {
                 }
               }
 
+              if (owningProvider && owningProvider.isExternal) {
+                let parsedResult = contentText;
+                try {
+                  parsedResult = JSON.parse(contentText);
+                } catch (e) {}
+                externalEvidence.push({
+                  toolName: toolCall.name,
+                  args: toolCall.args || {},
+                  result: parsedResult
+                });
+              }
+
               sessionMessages.push({
                 role: 'tool',
                 toolCallId: toolCall.id,
@@ -347,7 +356,7 @@ export async function runAgentOrchestrator(message) {
               });
             } catch (execError) {
               console.error(`[Orchestrator] Tool execution error for ${toolCall.name}:`, execError.message || execError);
-              resetMcpClient();
+              await mcpRegistry.resetAll();
               sessionMessages.push({
                 role: 'tool',
                 toolCallId: toolCall.id,
@@ -377,6 +386,20 @@ export async function runAgentOrchestrator(message) {
     }
   }
 
+  // Limit-reached annotation: prepended before the Evidence section (if present)
+  // so the user understands why the investigation was cut short.
+  if (toolCallLimitReached && finalAnswer) {
+    const limitMsg = "Investigation stopped after reaching the tool-call limit; evidence gathered so far is below.";
+    if (!finalAnswer.includes("Investigation stopped after reaching the tool-call limit")) {
+      const evidenceIndex = finalAnswer.indexOf("Evidence");
+      if (evidenceIndex !== -1) {
+        finalAnswer = finalAnswer.slice(0, evidenceIndex).trim() + "\n\n" + limitMsg + "\n\n" + finalAnswer.slice(evidenceIndex);
+      } else {
+        finalAnswer = finalAnswer + "\n\n" + limitMsg;
+      }
+    }
+  }
+
   globalHistory.push({ role: 'user', content: trimmedMessage });
   globalHistory.push({ role: 'assistant', content: finalAnswer });
 
@@ -388,6 +411,8 @@ export async function runAgentOrchestrator(message) {
     throw new Error('Failed to generate a valid non-empty response.');
   }
 
+  // Metadata: single construction point shared by all modes.
+  // All fields are always present; unused fields are empty arrays/strings.
   return {
     success: true,
     answer: finalAnswer.trim(),
@@ -400,7 +425,10 @@ export async function runAgentOrchestrator(message) {
       inspectedPaths: Array.from(inspectedPaths),
       debuggingMatches: debuggingMatches.map(m => m.id),
       commitsInspected: Array.from(commitsInspected),
-      logEvidence
+      logEvidence,
+      externalEvidence,
+      toolCallsUsed: Math.min(toolCallCount, AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST),
+      toolCallLimitReached
     }
   };
 }

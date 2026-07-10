@@ -9,3 +9,11 @@ export const AI_CONFIG = {
   REQUEST_TIMEOUT_MS: parseInt(process.env.REQUEST_TIMEOUT_MS || '20000', 10),
 };
 
+export const EXTERNAL_MCP_CONFIG = {
+  MOCK_EXTERNAL_MCP: process.env.MOCK_EXTERNAL_MCP === 'true',
+  GITHUB_MCP_ENABLED: process.env.GITHUB_MCP_ENABLED === 'true',
+  GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN || '',
+  CHROME_DEVTOOLS_MCP_ENABLED: process.env.CHROME_DEVTOOLS_MCP_ENABLED === 'true',
+  CONTEXT7_MCP_ENABLED: process.env.CONTEXT7_MCP_ENABLED === 'true',
+};
+

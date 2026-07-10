@@ -1,5 +1,9 @@
 export async function generateResponse({ messages, systemPrompt, tools, maxTokens }) {
+  // TEST INJECTION POINT: Only reachable when TEST_OPENAI_FAIL_ALL env var is set.
+  // Used by testResiliency.js and testOrchestratorFailures.js to simulate OpenAI quota errors.
+  // If this fires outside a test context, it indicates an environment misconfiguration.
   if (process.env.TEST_OPENAI_FAIL_ALL === 'true') {
+    console.warn('[WARN] TEST_OPENAI_FAIL_ALL is active — OpenAI provider is returning a mocked error. This must not fire in production.');
     const err = new Error("Mocked OpenAI API returned status 429: Rate limit exceeded");
     err.category = "Quota";
     err.status = 429;
