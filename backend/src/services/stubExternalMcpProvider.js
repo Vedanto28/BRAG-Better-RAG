@@ -100,6 +100,27 @@ export class StubExternalMcpProvider {
     throw new Error(`Tool ${name} not found on stub_external provider.`);
   }
 
+  formatEvidence(toolName, args, result) {
+    let evidenceType = "pull_request";
+    let summary = `Stub external tool ${toolName} query`;
+    if (toolName === "searchPullRequests") {
+      summary = `Stub PR search for: "${args.query || ''}"`;
+    } else if (toolName === "getPullRequestDetails") {
+      summary = `Stub PR details for PR #${args.prNumber || 'unknown'}`;
+    }
+    return {
+      provider: "stub_external",
+      toolName,
+      evidenceType,
+      summary,
+      timestamp: new Date().toISOString(),
+      repository: "stub-owner/stub-repo",
+      providerVersion: "1.0.0",
+      args,
+      payload: result
+    };
+  }
+
   async reset() {
     console.log("[StubExternalMcpProvider] Resetting connection.");
     this.connected = false;

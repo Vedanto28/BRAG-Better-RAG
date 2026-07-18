@@ -42,6 +42,21 @@ export function cleanFilePath(rawPath, rootPath) {
   return filePath;
 }
 
+// 2. Redact secrets using standard Prompt 2b regex
+const secretRegex = /^(.*?\b[a-zA-Z0-9_\-]*?(key|secret|password|token)[a-zA-Z0-9_\-]*?\s*[:=]\s*["']?)[^\r\n"'\s]+(["']?.*)$/i;
+
+export function redactSecrets(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const redactedLines = lines.map(line => {
+    if (secretRegex.test(line)) {
+      return line.replace(secretRegex, '$1[REDACTED]$3');
+    }
+    return line;
+  });
+  return redactedLines.join('\n');
+}
+
 /**
  * Parses raw pasted error log or stack trace content.
  * Performs secrets redaction, length cap checks, and regex frame matching.
@@ -67,18 +82,6 @@ export function parseErrorLog(logText) {
     truncatedNotice = "Input log was truncated to 10,000 characters.";
   }
 
-  // 2. Redact secrets using standard Prompt 2b regex
-  const secretRegex = /^(.*?\b[a-zA-Z0-9_\-]*?(key|secret|password|token)[a-zA-Z0-9_\-]*?\s*[:=]\s*["']?)[^\r\n"'\s]+(["']?.*)$/i;
-  const redactSecrets = (text) => {
-    const lines = text.split('\n');
-    const redactedLines = lines.map(line => {
-      if (secretRegex.test(line)) {
-        return line.replace(secretRegex, '$1[REDACTED]$3');
-      }
-      return line;
-    });
-    return redactedLines.join('\n');
-  };
   logText = redactSecrets(logText);
 
   // 3. Extract timestamps

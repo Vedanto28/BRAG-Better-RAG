@@ -1,18 +1,19 @@
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // Set required defaults for testing
-process.env.REPO_ROOT_PATH = path.resolve(__dirname, '../../..');
+process.env.REPO_ROOT_PATH = path.resolve(__dirname, '../..');
 process.env.MOCK_LLM = 'true';
 
 import mcpRegistry from '../src/services/mcpRegistry.js';
 import stubExternalMcpProvider from '../src/services/stubExternalMcpProvider.js';
+import gitHubMcpProvider from '../src/services/gitHubMcpProvider.js';
 import { runAgentOrchestrator } from '../src/services/agentOrchestrator.js';
+import { EXTERNAL_MCP_CONFIG } from '../src/utils/config.js';
 import app from '../server.js';
 
 const TEST_PORT = 5007;
@@ -31,10 +32,9 @@ function startServer() {
 function stopServer() {
   return new Promise((resolve) => {
     if (serverInstance) {
-      serverInstance.close(() => {
-        console.log('[Test Server] Stopped.');
-        resolve();
-      });
+      serverInstance.close();
+      console.log('[Test Server] Stopped.');
+      resolve();
     } else {
       resolve();
     }
@@ -65,11 +65,14 @@ async function runTests() {
     // TEST A: Scoping and Gating
     console.log("--- Test A: Scoping and Gating ---");
     process.env.MOCK_EXTERNAL_MCP = 'false';
+    EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = false;
     await mcpRegistry.resetAll();
     let toolsRepoDisabled = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(!toolsRepoDisabled.some(t => t.name === "searchPullRequests"), "When MOCK_EXTERNAL_MCP=false, searchPullRequests is not exposed");
 
     process.env.MOCK_EXTERNAL_MCP = 'true';
+    EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = true;
+    await mcpRegistry.resetAll();
     let toolsRepoEnabled = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(toolsRepoEnabled.some(t => t.name === "searchPullRequests"), "When MOCK_EXTERNAL_MCP=true, searchPullRequests is exposed in repository_investigation");
     assert(toolsRepoEnabled.some(t => t.name === "getPullRequestDetails"), "When MOCK_EXTERNAL_MCP=true, getPullRequestDetails is exposed in repository_investigation");
@@ -114,10 +117,34 @@ async function runTests() {
     // Clean out broken provider from providers array
     mcpRegistry.providers = mcpRegistry.providers.filter(p => p.name !== "broken_provider");
 
+    // TEST C.1: Stub/GitHub Mutual Exclusion
+    console.log("\n--- Test C.1: Stub/GitHub Mutual Exclusion ---");
+    const originalAvailableStub = stubExternalMcpProvider.isAvailable;
+    const originalAvailableGitHub = gitHubMcpProvider.isAvailable;
+
+    stubExternalMcpProvider.isAvailable = async () => true;
+    gitHubMcpProvider.isAvailable = async () => true;
+
+    let exclusionPassed = false;
+    try {
+      await mcpRegistry.getToolsForMode("change_investigation");
+    } catch (e) {
+      if (e.message.includes("Both stub_external and github providers cannot be active simultaneously")) {
+        exclusionPassed = true;
+      }
+    }
+    assert(exclusionPassed, "Mutual exclusion gating throws error if both stub and real GitHub providers are active");
+
+    // Restore
+    stubExternalMcpProvider.isAvailable = originalAvailableStub;
+    gitHubMcpProvider.isAvailable = originalAvailableGitHub;
+    await mcpRegistry.resetAll();
+
     // TEST D: Shared Budget & Metadata Correctness via Orchestrator
     console.log("\n--- Test D: Shared Budget & Metadata Correctness via Orchestrator ---");
     process.env.MOCK_LLM = 'true';
     process.env.MOCK_EXTERNAL_MCP = 'true';
+    EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = true;
     await mcpRegistry.resetAll();
 
     const prResult = await runAgentOrchestrator("Remote PR checking database configuration change?");
@@ -127,7 +154,7 @@ async function runTests() {
     assert(prResult.metadata.externalEvidence.length === 1, "metadata.externalEvidence captured exactly 1 external evidence item");
     assert(prResult.metadata.externalEvidence[0].toolName === "searchPullRequests", "metadata.externalEvidence recorded correct toolName");
     assert(prResult.metadata.externalEvidence[0].args.query === "database", "metadata.externalEvidence recorded correct args");
-    assert(prResult.metadata.externalEvidence[0].result.pullRequests[0].prNumber === 101, "metadata.externalEvidence captured actual stub output without fabrication");
+    assert(prResult.metadata.externalEvidence[0].payload.pullRequests[0].prNumber === 101, "metadata.externalEvidence captured actual stub output without fabrication");
 
     // Test mixed budget check hitting cap at 6 total across both internal and stub external tools
     const mixResult = await runAgentOrchestrator("Perform mixed budget check with external and internal tools across configuration files in this repository");

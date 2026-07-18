@@ -32,6 +32,49 @@ export function getMockResponse({ messages }) {
   const lastUserMessage = messages[lastUserIndex]?.content || '';
   const q = lastUserMessage.toLowerCase();
 
+  // Live mixed budget check scenario
+  if (q.includes("live mixed budget") && q.includes("verify")) {
+    if (turnLength === 1) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'live-calc', name: 'calculator', args: { operator: 'multiply', operand1: 2, operand2: 3 } },
+          { id: 'live-read', name: 'readFile', args: { path: 'README.md' } }
+        ]
+      };
+    }
+    if (turnLength === 4) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'live-commits', name: 'list_commits', args: { per_page: 2 } },
+          { id: 'live-read-2', name: 'readFile', args: { path: 'package.json' } }
+        ]
+      };
+    }
+    if (turnLength === 7) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'live-calc-2', name: 'calculator', args: { operator: 'multiply', operand1: 10, operand2: 20 } },
+          { id: 'live-commits-2', name: 'list_commits', args: { per_page: 1 } }
+        ]
+      };
+    }
+    if (turnLength === 10) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'live-blocked', name: 'list_commits', args: { per_page: 5 } }
+        ]
+      };
+    }
+    return {
+      provider: 'mock',
+      text: "Mixed budget check completed."
+    };
+  }
+
   // 4b Test: Remote PR search via stub external MCP
   if (q.includes("remote pr") && q.includes("database")) {
     if (turnLength === 1) {

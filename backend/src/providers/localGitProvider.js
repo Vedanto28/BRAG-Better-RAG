@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { GitProvider } from './gitProvider.js';
+import { redactSecrets } from '../utils/logParser.js';
 
 const execFilePromise = promisify(execFile);
 
@@ -31,16 +32,7 @@ export class LocalGitProvider extends GitProvider {
    * @private
    */
   _redactSecrets(diffText) {
-    if (!diffText) return '';
-    const lines = diffText.split('\n');
-    const redactedLines = lines.map(line => {
-      const secretRegex = /^(.*?\b[a-zA-Z0-9_\-]*?(key|secret|password|token)[a-zA-Z0-9_\-]*?\s*[:=]\s*["']?)[^\r\n"'\s]+(["']?.*)$/i;
-      if (secretRegex.test(line)) {
-        return line.replace(secretRegex, '$1[REDACTED]$3');
-      }
-      return line;
-    });
-    return redactedLines.join('\n');
+    return redactSecrets(diffText);
   }
 
   /**

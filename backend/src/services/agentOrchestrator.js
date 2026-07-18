@@ -25,7 +25,8 @@ const MECHAMARU_SYSTEM_INSTRUCTION =
   "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
   "- Code: <actual code evidence if inspected>\n" +
   "- Recent changes: <actual commit evidence if inspected>\n" +
-  "- Remote/External: <actual remote/external evidence if inspected via remote tools e.g. GitHub/DevTools/Context7>\n\n" +
+  "- Remote/External: <actual remote/external evidence if inspected via remote tools e.g. DevTools/Context7>\n" +
+  "- Remote (GitHub): <actual GitHub remote evidence if inspected e.g. PRs, issues, workflow status>\n\n" +
   "Assessment\n\n" +
   "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis. If a stack frame references a file that does not exist in this repository, explicitly mention that here>\n\n" +
   "Confidence\n\n" +
@@ -124,7 +125,7 @@ function routeRequest(query, debuggingMatches = []) {
 }
 
 
-export async function runAgentOrchestrator(message) {
+export async function runAgentOrchestrator(message, signal) {
   if (!message || typeof message !== 'string' || !message.trim()) {
     const err = new Error('Message is required.');
     err.status = 400;
@@ -298,7 +299,8 @@ export async function runAgentOrchestrator(message) {
             try {
               const { toolResult, provider: owningProvider } = await mcpRegistry.callTool({
                 name: toolCall.name,
-                arguments: toolCall.args
+                arguments: toolCall.args,
+                signal
               });
 
               const contentText = (toolResult.content || []).map(c => c.text).join('\n');
@@ -341,11 +343,17 @@ export async function runAgentOrchestrator(message) {
                 try {
                   parsedResult = JSON.parse(contentText);
                 } catch (e) {}
-                externalEvidence.push({
-                  toolName: toolCall.name,
-                  args: toolCall.args || {},
-                  result: parsedResult
-                });
+                if (typeof owningProvider.formatEvidence === 'function') {
+                  externalEvidence.push(owningProvider.formatEvidence(toolCall.name, toolCall.args || {}, parsedResult));
+                } else {
+                  externalEvidence.push({
+                    provider: owningProvider.name || "unknown",
+                    toolName: toolCall.name,
+                    evidenceType: "unknown",
+                    summary: `Tool ${toolCall.name} executed`,
+                    payload: parsedResult
+                  });
+                }
               }
 
               sessionMessages.push({

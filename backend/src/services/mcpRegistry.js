@@ -1,5 +1,6 @@
 import internalMcpProvider from './internalMcpProvider.js';
 import stubExternalMcpProvider from './stubExternalMcpProvider.js';
+import gitHubMcpProvider from './gitHubMcpProvider.js';
 
 export class McpCapabilityRegistry {
   constructor() {
@@ -9,6 +10,7 @@ export class McpCapabilityRegistry {
     // Automatically register default providers
     this.registerProvider(internalMcpProvider);
     this.registerProvider(stubExternalMcpProvider);
+    this.registerProvider(gitHubMcpProvider);
   }
 
   registerProvider(provider) {
@@ -55,6 +57,14 @@ export class McpCapabilityRegistry {
       }
     }
 
+    // Mutual exclusion check
+    const activeProviders = Array.from(this.toolToProvider.values());
+    const hasStub = activeProviders.some(p => p.name === "stub_external");
+    const hasGitHub = activeProviders.some(p => p.name === "github");
+    if (hasStub && hasGitHub) {
+      throw new Error("Registry configuration error: Both stub_external and github providers cannot be active simultaneously.");
+    }
+
     return tools;
   }
 
@@ -62,7 +72,7 @@ export class McpCapabilityRegistry {
     return this.toolToProvider.get(toolName);
   }
 
-  async callTool({ name, arguments: args }) {
+  async callTool({ name, arguments: args, signal }) {
     let provider = this.toolToProvider.get(name);
     if (!provider) {
       // Fallback check: if toolToProvider mapping was cleared or tool requested without mode listing
@@ -86,7 +96,7 @@ export class McpCapabilityRegistry {
       throw new Error(`Tool ${name} is not registered or available.`);
     }
 
-    const toolResult = await provider.callTool({ name, arguments: args });
+    const toolResult = await provider.callTool({ name, arguments: args, signal });
     return {
       toolResult,
       provider
