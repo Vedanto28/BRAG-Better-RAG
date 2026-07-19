@@ -3,6 +3,7 @@ import { getMcpClient, resetMcpClient } from './mcpClient.js';
 export class InternalMcpProvider {
   constructor() {
     this.name = "internal";
+    this.category = "internal";
     this.isExternal = false;
   }
 

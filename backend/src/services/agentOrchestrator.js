@@ -7,15 +7,20 @@ import { isLogStructured } from '../utils/logParser.js';
 
 const MECHAMARU_SYSTEM_INSTRUCTION =
   "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
-  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), and a log-parsing tool (parseErrorLog).\n\n" +
+  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), a log-parsing tool (parseErrorLog), remote repository tools (GitHub MCP), browser runtime diagnostic tools (Chrome DevTools MCP), and live technical documentation lookup tools (Context7 MCP).\n\n" +
   "STRICT RULES FOR TOOL USE:\n" +
   "1. Only use codebase/Git/log-parsing tools when the question is about THIS connected codebase's actual implementation, errors, or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today', or when a stack trace/error log is pasted).\n" +
   "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
   "3. If the user's message contains a pasted error log or stack trace, you MUST call parseErrorLog on that exact text before speculating about the cause.\n" +
   "4. After parsing, if stackFrames reference files, you must decide whether to use readFile/searchCode to confirm whether those files exist in the repository and what they currently contain. Do not assume stack trace file paths are accurate without checking. If a stack frame references a file that does not exist in the repository, you must state that explicitly rather than fabricating an explanation.\n" +
-  "5. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
-  "6. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
-  "7. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n\n" +
+  "5. When investigating runtime/frontend symptoms such as console errors, network failures, CORS, page load failures, or interactive page behaviors, you should use the Chrome DevTools MCP tools (navigate_page, list_console_messages, list_network_requests, take_screenshot) to inspect the browser state.\n" +
+  "6. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
+  "7. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
+  "8. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n" +
+  "9. If you need to verify version-specific documentation, correct API usage patterns, or official examples for third-party libraries (Next.js, Express, mongoose, JWT, etc.), you MUST resolve the library ID via resolve-library-id and query the documentation using query-docs.\n\n" +
+  "CONTEXT7 VS DEBUGGING RAG GUIDANCE:\n" +
+  "- Debugging RAG: Static, curated known failure-pattern hypotheses used only to suggest *why* a local component might fail. Never cite this as live documentation.\n" +
+  "- Context7: Live, official, version-specific library documentation. Use it to compare actual code against recommended API patterns. Keep these visually and textually separate in the Evidence block.\n\n" +
   "FINAL RESPONSE FORMATS:\n" +
   "1. For debugging and log investigations (when debugging context was found, you are investigating a bug/failure symptom, or a log/stack trace is pasted): your final answer MUST be structured exactly as:\n\n" +
   "Hypothesis\n\n" +
@@ -25,8 +30,10 @@ const MECHAMARU_SYSTEM_INSTRUCTION =
   "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
   "- Code: <actual code evidence if inspected>\n" +
   "- Recent changes: <actual commit evidence if inspected>\n" +
-  "- Remote/External: <actual remote/external evidence if inspected via remote tools e.g. DevTools/Context7>\n" +
-  "- Remote (GitHub): <actual GitHub remote evidence if inspected e.g. PRs, issues, workflow status>\n\n" +
+  "- Remote/External: <actual remote/external evidence if inspected via remote tools>\n" +
+  "- Remote (GitHub): <actual GitHub remote evidence if inspected e.g. PRs, issues, workflow status>\n" +
+  "- Runtime (Browser): <actual browser runtime evidence if inspected e.g. console errors, network failures, page exceptions>\n" +
+  "- Documentation (Context7): <actual version-specific official documentation / code examples retrieved from Context7>\n\n" +
   "Assessment\n\n" +
   "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis. If a stack frame references a file that does not exist in this repository, explicitly mention that here>\n\n" +
   "Confidence\n\n" +
@@ -105,16 +112,32 @@ function routeRequest(query, debuggingMatches = []) {
     return "normal_chat";
   }
 
+  // 4b. Check for documentation_lookup (explicit doc requests or framework/library "how does X work" questions)
+  // This must come AFTER generalExclusions to preserve "what is express?" → normal_chat,
+  // but BEFORE repo_investigation to catch "How does Next.js App Router work?" before the default fallback.
+  const docIntentPatterns = [
+    // Explicit documentation intent phrases
+    /\b(official doc(s|umentation)?|according to doc(s|umentation)?|latest doc(s|umentation)?|api reference|library doc(s|umentation)?|framework doc(s|umentation)?|use.*(doc(s|umentation)?))\b/,
+    // Generic "how does X work" / "explain X" for well-known libraries, frameworks, and concepts
+    /\b(how does|explain|how to use)\b.*\b(next\.?js|react|express|mongoose|prisma|passport|sequelize|typeorm|knex|fastify|hapi|koa|nestjs|nest\.?js|angular|vue|svelte|nuxt|remix|gatsby|webpack|vite|vitest|jest|mocha|chai|sinon|supertest|redis|graphql|apollo|socket\.?io|tailwind|bootstrap|material.?ui|chakra|styled.?components|emotion|zod|yup|joi|ajv|drizzle|pino|winston|morgan|bcrypt|argon2|helmet|rate.?limit|multer|formidable|sharp|puppeteer|playwright|cheerio|axios|got|node.?fetch|dotenv|cors|cookie.?parser|body.?parser|compression|cluster|pm2|swagger|openapi|stripe|twilio|sendgrid|firebase|supabase|vercel)\b/,
+    // Generic "how does X work" / "explain X" for architectural concepts
+    /\b(how does|explain|how to use)\b.*\b(middleware|routing|router|loaders|suspense|hooks|transactions|migrations|authentication|authorization|session|caching|rate limiting|websocket|streaming|ssr|ssg|isr|static generation|server components|client components|app router|pages router|api routes|edge functions|serverless)\b/
+  ];
+  if (docIntentPatterns.some(regex => regex.test(q))) {
+    return "documentation_lookup";
+  }
+
   // 5. Check for repository_investigation (specific codebase/architecture queries)
   const repoIndicators = [
     /\b(this|the|my|current)\b.*\b(repo|repository|codebase|backend|project|app|server|workspace|directory|files|src|folders)\b/,
-    /\b(login|chat|auth|api|db|database|route|endpoint|controller|service|middleware|config|configuration|provider|handler|orchestrator|server\.js|package\.json|env|port|express)\b/,
+    /\b(login|chat|auth|api|db|database|route|endpoint|controller|service|middleware|config|configuration|provider|handler|orchestrator|server\.js|package\.json|env|port|express|console|network|cors|page|browser|localhost|url)\b/,
     /\b(where|how|why|what)\b.*\b(defined|configured|implemented|stored|written|saved|set|called|used|structured|organized|enforced|travel|flow|reach|path|journey)\b/
   ];
   const repoKeywords = [
     'app.listen', 'max_user_message_chars', 'max_context_chars', 'agentorchestrator',
     'mcpclient', 'mcpserver', 'providerinterface', 'geminiprovider', 'openaiprovider',
-    'localrepoprovider', 'repoprovider', 'login route', 'jwt secret', 'database connection'
+    'localrepoprovider', 'repoprovider', 'login route', 'jwt secret', 'database connection',
+    'console error', 'network request', 'network failure', 'page load', 'cors failure'
   ];
   if (repoIndicators.some(regex => regex.test(q)) || repoKeywords.some(kw => q.includes(kw))) {
     return "repository_investigation";
@@ -217,7 +240,7 @@ export async function runAgentOrchestrator(message, signal) {
     let mcpTools = [];
 
     try {
-      mcpTools = await mcpRegistry.getToolsForMode(mode);
+      mcpTools = await mcpRegistry.getToolsForMode(mode, trimmedMessage);
     } catch (registryError) {
       console.warn("[Orchestrator] MCP Registry tool discovery failed or unavailable. Resetting capability providers.", registryError.message || registryError);
       await mcpRegistry.resetAll();

@@ -1,5 +1,6 @@
 import * as geminiProvider from './geminiProvider.js';
 import * as openaiProvider from './openaiProvider.js';
+import * as deepseekProvider from './deepseekProvider.js';
 import { AI_CONFIG } from '../utils/config.js';
 
 function withTimeout(promise, ms, errorMessage = 'Request timed out.') {
@@ -20,6 +21,17 @@ function withTimeout(promise, ms, errorMessage = 'Request timed out.') {
   ]);
 }
 
+/**
+ * Detect whether an error is a quota/rate-limit failure that should
+ * immediately cascade to the next provider without retrying.
+ */
+function isQuotaError(error) {
+  if (error.category === 'Quota') return true;
+  if (error.status === 429 || error.status === 402) return true;
+  const msg = (error.message || '').toLowerCase();
+  return msg.includes('quota') || msg.includes('rate limit') || msg.includes('insufficient_quota') || msg.includes('resource exhausted');
+}
+
 export async function generateResponse({ messages, systemPrompt, tools }) {
   // MOCK MODE: When MOCK_LLM=true, delegate to the isolated mock handler module.
   // This path must NEVER be reached in production. Set MOCK_LLM=true only in test contexts.
@@ -30,15 +42,18 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
 
   const primaryProvider = process.env.LLM_PROVIDER || 'gemini';
   const secondaryProvider = primaryProvider === 'gemini' ? 'openai' : 'gemini';
+  const tertiaryProvider = 'deepseek';
 
   const providerMap = {
     gemini: geminiProvider,
-    openai: openaiProvider
+    openai: openaiProvider,
+    deepseek: deepseekProvider
   };
 
   const hasApiKey = (prov) => {
     if (prov === 'gemini') return !!process.env.GEMINI_API_KEY;
     if (prov === 'openai') return !!process.env.OPENAI_API_KEY;
+    if (prov === 'deepseek') return !!process.env.DEEPSEEK_API_KEY;
     return false;
   };
 
@@ -77,6 +92,10 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
     }
   };
 
+  // --- 3-provider fallback chain: primary → secondary → tertiary ---
+  const errors = [];
+
+  // 1. Try primary provider
   try {
     if (!hasApiKey(primaryProvider)) {
       const err = new Error(`Primary provider ${primaryProvider} is missing its API key.`);
@@ -88,20 +107,41 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
   } catch (primaryError) {
     const category = primaryError.category || 'Other Upstream Error';
     console.warn(`[Orchestrator] Primary provider (${primaryProvider}) failed. Category: ${category}. Error: ${primaryError.message}`);
-
-    const canTrySecondary = hasApiKey(secondaryProvider);
-    if (canTrySecondary) {
-      try {
-        console.warn(`[Orchestrator] Attempting fallback to secondary provider: ${secondaryProvider}`);
-        const result = await callProvider(secondaryProvider);
-        return { ...result, provider: secondaryProvider };
-      } catch (secondaryError) {
-        const secCategory = secondaryError.category || 'Other Upstream Error';
-        console.error(`[Orchestrator] Secondary provider (${secondaryProvider}) also failed. Category: ${secCategory}. Error: ${secondaryError.message}`);
-        throw new Error(`Both primary and secondary LLM providers failed. Primary: ${primaryError.message}. Secondary: ${secondaryError.message}`);
-      }
-    } else {
-      throw primaryError;
-    }
+    errors.push({ provider: primaryProvider, error: primaryError });
   }
+
+  // 2. Try secondary provider
+  if (hasApiKey(secondaryProvider)) {
+    try {
+      console.warn(`[Orchestrator] Attempting fallback to secondary provider: ${secondaryProvider}`);
+      const result = await callProvider(secondaryProvider);
+      return { ...result, provider: secondaryProvider };
+    } catch (secondaryError) {
+      const secCategory = secondaryError.category || 'Other Upstream Error';
+      console.warn(`[Orchestrator] Secondary provider (${secondaryProvider}) also failed. Category: ${secCategory}. Error: ${secondaryError.message}`);
+      errors.push({ provider: secondaryProvider, error: secondaryError });
+    }
+  } else {
+    console.warn(`[Orchestrator] Skipping secondary provider (${secondaryProvider}): no API key configured.`);
+  }
+
+  // 3. Try tertiary provider (DeepSeek)
+  if (hasApiKey(tertiaryProvider)) {
+    try {
+      console.warn(`[Orchestrator] Attempting fallback to tertiary provider: ${tertiaryProvider}`);
+      const result = await callProvider(tertiaryProvider);
+      return { ...result, provider: tertiaryProvider };
+    } catch (tertiaryError) {
+      const terCategory = tertiaryError.category || 'Other Upstream Error';
+      console.error(`[Orchestrator] Tertiary provider (${tertiaryProvider}) also failed. Category: ${terCategory}. Error: ${tertiaryError.message}`);
+      errors.push({ provider: tertiaryProvider, error: tertiaryError });
+    }
+  } else {
+    console.warn(`[Orchestrator] Skipping tertiary provider (${tertiaryProvider}): no API key configured.`);
+  }
+
+  // All providers failed
+  const errorSummary = errors.map(e => `${e.provider}: ${e.error.message}`).join('; ');
+  throw new Error(`All LLM providers failed. ${errorSummary}`);
 }
+

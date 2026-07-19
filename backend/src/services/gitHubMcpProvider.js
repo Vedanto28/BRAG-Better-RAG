@@ -84,6 +84,7 @@ function redactAndCapPayload(data) {
 export class GitHubMcpProvider {
   constructor() {
     this.name = "github";
+    this.category = "repository";
     this.isExternal = true;
     this.connected = false;
     this.client = null;

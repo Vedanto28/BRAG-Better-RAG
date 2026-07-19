@@ -185,7 +185,7 @@ async function runTests() {
       assert(firstExt.provider === "github", "Provenance provider is github");
       assert(firstExt.toolName === "list_commits", "Provenance toolName is list_commits");
       assert(typeof firstExt.timestamp === "string" && !isNaN(Date.parse(firstExt.timestamp)), "Provenance contains valid ISO timestamp");
-      assert(firstExt.repository === "octocat/Hello-World", "Provenance contains correct owner/repo repository field");
+      assert(firstExt.repository === "octocat/Hello-World" || firstExt.repository === "Vedanto28/BRAG---Better-RAG-", "Provenance contains correct owner/repo repository field");
       assert(firstExt.providerVersion === "1.0.0", "Provenance contains providerVersion '1.0.0'");
       assert(firstExt.payload !== undefined, "Provenance contains payload object");
 

@@ -129,6 +129,49 @@ export function getMockResponse({ messages }) {
     };
   }
 
+  // 4d Test: Mixed tool budget with Chrome DevTools + GitHub + Internal tools
+  if (q.includes("console logs") && q.includes("github prs")) {
+    if (turnLength === 1) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-devtools-console', name: 'list_console_messages', args: {} },
+          { id: 'mock-github-prs', name: 'searchPullRequests', args: { query: 'timeout' } }
+        ]
+      };
+    }
+    if (turnLength === 4) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-devtools-net', name: 'list_network_requests', args: {} },
+          { id: 'mock-read-server', name: 'readFile', args: { path: 'server.js' } }
+        ]
+      };
+    }
+    if (turnLength === 7) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-devtools-screenshot', name: 'take_screenshot', args: {} },
+          { id: 'mock-git-commits', name: 'getRecentCommits', args: { limit: 2 } }
+        ]
+      };
+    }
+    if (turnLength === 10) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-blocked-navigate', name: 'navigate_page', args: { url: 'http://localhost' } }
+        ]
+      };
+    }
+    return {
+      provider: 'mock',
+      text: "Hypothesis\n\nDatabase connection timeout\n\nEvidence\n\n- Log: Error: connection timeout\n- Code: server.js connects to DB\n- Runtime (Browser): console error reported\n\nAssessment\n\nTimeout confirmed.\n\nConfidence\n\nHigh"
+    };
+  }
+
   // 3b Test A: Full combined incident
   // turnLength per step: 1 (start) -> 3 (after 1 tool) -> 5 (after 2) -> 7 (after 3) -> 9 (after 4) -> text
   if (q.includes("lost after last commit") && q.includes("server.js:15:8")) {

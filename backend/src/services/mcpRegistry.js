@@ -1,6 +1,8 @@
 import internalMcpProvider from './internalMcpProvider.js';
 import stubExternalMcpProvider from './stubExternalMcpProvider.js';
 import gitHubMcpProvider from './gitHubMcpProvider.js';
+import chromeDevToolsMcpProvider from './chromeDevToolsMcpProvider.js';
+import context7McpProvider from './context7McpProvider.js';
 
 export class McpCapabilityRegistry {
   constructor() {
@@ -11,6 +13,8 @@ export class McpCapabilityRegistry {
     this.registerProvider(internalMcpProvider);
     this.registerProvider(stubExternalMcpProvider);
     this.registerProvider(gitHubMcpProvider);
+    this.registerProvider(chromeDevToolsMcpProvider);
+    this.registerProvider(context7McpProvider);
   }
 
   registerProvider(provider) {
@@ -20,7 +24,7 @@ export class McpCapabilityRegistry {
     this.providers.push(provider);
   }
 
-  async getToolsForMode(mode) {
+  async getToolsForMode(mode, query = "") {
     this.toolToProvider.clear();
     const tools = [];
 
@@ -36,7 +40,7 @@ export class McpCapabilityRegistry {
 
       let relevant = false;
       try {
-        relevant = await p.isRelevantForMode(mode);
+        relevant = await p.isRelevantForMode(mode, query);
       } catch (err) {
         console.warn(`[McpRegistry] Provider ${p.name} threw during isRelevantForMode(${mode}). Treating as not relevant.`, err.message || err);
         relevant = false;
@@ -57,12 +61,17 @@ export class McpCapabilityRegistry {
       }
     }
 
-    // Mutual exclusion check
-    const activeProviders = Array.from(this.toolToProvider.values());
-    const hasStub = activeProviders.some(p => p.name === "stub_external");
-    const hasGitHub = activeProviders.some(p => p.name === "github");
-    if (hasStub && hasGitHub) {
-      throw new Error("Registry configuration error: Both stub_external and github providers cannot be active simultaneously.");
+    // Mutual exclusion check: only one active provider per category is allowed (excluding 'internal' or 'unknown')
+    const activeProviders = Array.from(new Set(this.toolToProvider.values()));
+    const categories = {};
+    for (const p of activeProviders) {
+      const cat = p.category || "unknown";
+      if (cat !== "internal" && cat !== "unknown") {
+        if (categories[cat]) {
+          throw new Error(`Registry configuration error: Both ${categories[cat].name} and ${p.name} providers cannot be active simultaneously (category: "${cat}").`);
+        }
+        categories[cat] = p;
+      }
     }
 
     return tools;

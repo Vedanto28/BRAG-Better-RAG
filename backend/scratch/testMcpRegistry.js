@@ -12,6 +12,7 @@ process.env.MOCK_LLM = 'true';
 import mcpRegistry from '../src/services/mcpRegistry.js';
 import stubExternalMcpProvider from '../src/services/stubExternalMcpProvider.js';
 import gitHubMcpProvider from '../src/services/gitHubMcpProvider.js';
+import chromeDevToolsMcpProvider from '../src/services/chromeDevToolsMcpProvider.js';
 import { runAgentOrchestrator } from '../src/services/agentOrchestrator.js';
 import { EXTERNAL_MCP_CONFIG } from '../src/utils/config.js';
 import app from '../server.js';
@@ -129,7 +130,7 @@ async function runTests() {
     try {
       await mcpRegistry.getToolsForMode("change_investigation");
     } catch (e) {
-      if (e.message.includes("Both stub_external and github providers cannot be active simultaneously")) {
+      if (e.message.includes("cannot be active simultaneously") && e.message.includes("stub_external") && e.message.includes("github")) {
         exclusionPassed = true;
       }
     }
@@ -138,6 +139,49 @@ async function runTests() {
     // Restore
     stubExternalMcpProvider.isAvailable = originalAvailableStub;
     gitHubMcpProvider.isAvailable = originalAvailableGitHub;
+    await mcpRegistry.resetAll();
+
+    // TEST C.2: GitHub and Chrome DevTools Coexistence
+    console.log("\n--- Test C.2: GitHub and Chrome DevTools Coexistence ---");
+    const originalChromeAvailable = chromeDevToolsMcpProvider.isAvailable;
+    const originalGitHubAvailable2 = gitHubMcpProvider.isAvailable;
+    const originalStubAvailable = stubExternalMcpProvider.isAvailable;
+
+    stubExternalMcpProvider.isAvailable = async () => false;
+    gitHubMcpProvider.isAvailable = async () => true;
+    chromeDevToolsMcpProvider.isAvailable = async () => true;
+
+    // Mock listTools and lazyConnect for both so we don't try to make live connections
+    const originalChromeList = chromeDevToolsMcpProvider.listTools;
+    const originalGitHubList = gitHubMcpProvider.listTools;
+    const originalChromeConnect = chromeDevToolsMcpProvider.lazyConnect;
+    const originalGitHubConnect = gitHubMcpProvider.lazyConnect;
+
+    chromeDevToolsMcpProvider.listTools = async () => [{ name: "navigate_page", inputSchema: {} }];
+    gitHubMcpProvider.listTools = async () => [{ name: "list_commits", inputSchema: {} }];
+    chromeDevToolsMcpProvider.lazyConnect = async () => {};
+    gitHubMcpProvider.lazyConnect = async () => {};
+
+    let coexistencePassed = false;
+    try {
+      const tools = await mcpRegistry.getToolsForMode("repository_investigation");
+      assert(tools.some(t => t.name === "navigate_page"), "Coexistence exposes navigate_page");
+      assert(tools.some(t => t.name === "list_commits"), "Coexistence exposes list_commits");
+      coexistencePassed = true;
+    } catch (e) {
+      console.error("Coexistence failed:", e);
+    }
+
+    assert(coexistencePassed, "GitHub and Chrome DevTools providers can be active simultaneously without throwing");
+
+    // Restore
+    stubExternalMcpProvider.isAvailable = originalStubAvailable;
+    gitHubMcpProvider.isAvailable = originalGitHubAvailable2;
+    chromeDevToolsMcpProvider.isAvailable = originalChromeAvailable;
+    chromeDevToolsMcpProvider.listTools = originalChromeList;
+    gitHubMcpProvider.listTools = originalGitHubList;
+    chromeDevToolsMcpProvider.lazyConnect = originalChromeConnect;
+    gitHubMcpProvider.lazyConnect = originalGitHubConnect;
     await mcpRegistry.resetAll();
 
     // TEST D: Shared Budget & Metadata Correctness via Orchestrator
