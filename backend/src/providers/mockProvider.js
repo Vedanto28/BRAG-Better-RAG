@@ -32,6 +32,32 @@ export function getMockResponse({ messages }) {
   const lastUserMessage = messages[lastUserIndex]?.content || '';
   const q = lastUserMessage.toLowerCase();
 
+  // Compound verification query (GitHub + Context7)
+  if (q.includes("auth logic broke") && q.includes("github") && q.includes("jwt")) {
+    if (turnLength === 1) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-compound-github-list', name: 'list_commits', args: { per_page: 5 } },
+          { id: 'mock-compound-c7-resolve', name: 'resolve-library-id', args: { libraryName: "jsonwebtoken", query: "verify" } }
+        ]
+      };
+    }
+    if (turnLength === 4) {
+      return {
+        provider: 'mock',
+        toolCalls: [
+          { id: 'mock-compound-github-inspect', name: 'inspectCommit', args: { commitHash: 'b7ee318' } },
+          { id: 'mock-compound-c7-query', name: 'query-docs', args: { libraryId: "/npm/jsonwebtoken", query: "jwt.verify options" } }
+        ]
+      };
+    }
+    return {
+      provider: 'mock',
+      text: "Hypothesis\n\nThe recent commit b7ee318 changed the JWT verification algorithm parameter which is incompatible with the standard jsonwebtoken verify configuration.\n\nEvidence\n\n- Remote (GitHub): Inspecting commit b7ee318 shows that 'algorithm: RS256' was added without updating the key.\n- Documentation (Context7): Official jsonwebtoken docs state that RS256 requires a PEM private/public key pair instead of a plain string secret.\n\nAssessment\n\nThe change in the commit introduced an algorithm mismatch between token generation and verification, confirming the hypothesis.\n\nConfidence\n\nHigh"
+    };
+  }
+
   // Live mixed budget check scenario
   if (q.includes("live mixed budget") && q.includes("verify")) {
     if (turnLength === 1) {

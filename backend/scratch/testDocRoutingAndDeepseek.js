@@ -119,15 +119,18 @@ async function runTests() {
   
   // Verify it throws Authentication when no key is set
   const originalKey = process.env.DEEPSEEK_API_KEY;
+  const originalMcpKey = process.env.DEEPSEEK_MCP;
   delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_MCP;
   try {
     await deepseek.generateResponse({ messages: [{ role: 'user', content: 'test' }], systemPrompt: 'test', tools: [] });
     assert.fail("Test 5: Should have thrown for missing API key");
   } catch (err) {
     assert.strictEqual(err.category, 'Authentication', "Test 5: Error should be Authentication category");
-    assert.ok(err.message.includes('DEEPSEEK_API_KEY'), "Test 5: Error message should mention DEEPSEEK_API_KEY");
+    assert.ok(err.message.includes('DEEPSEEK_API_KEY') || err.message.includes('DEEPSEEK_MCP'), "Test 5: Error message should mention API key");
   }
   if (originalKey) process.env.DEEPSEEK_API_KEY = originalKey;
+  if (originalMcpKey) process.env.DEEPSEEK_MCP = originalMcpKey;
 
   // Verify test injection works
   process.env.TEST_DEEPSEEK_FAIL_ALL = 'true';

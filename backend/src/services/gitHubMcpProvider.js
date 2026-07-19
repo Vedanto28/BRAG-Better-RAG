@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { EXTERNAL_MCP_CONFIG } from '../utils/config.js';
 import { redactSecrets } from '../utils/logParser.js';
+import { ConnectionCircuitBreaker } from './connectionCircuitBreaker.js';
 
 const execFilePromise = promisify(execFile);
 
@@ -91,6 +92,13 @@ export class GitHubMcpProvider {
     this.transport = null;
     this._repoInfo = null;
     this._isAvailable = undefined;
+    this.instanceId = "github-" + Math.random().toString(36).substring(2, 10);
+    this.connectionState = "DISCONNECTED";
+    this._circuitBreaker = new ConnectionCircuitBreaker(
+      "github",
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_MAX_ATTEMPTS,
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_WINDOW_MS
+    );
 
     // Allowed read-only tools
     this.allowedTools = [
@@ -193,31 +201,60 @@ export class GitHubMcpProvider {
   }
 
   async lazyConnect() {
-    if (this.connected) return;
+    if (this._circuitBreaker.isTripped()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked by circuit breaker for provider ${this.name}`);
+    }
 
-    console.log("[GitHubMcpProvider] Lazy connecting to GitHub MCP server...");
-    this.transport = new StdioClientTransport({
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-github"],
-      env: {
-        ...process.env,
-        GITHUB_PERSONAL_ACCESS_TOKEN: EXTERNAL_MCP_CONFIG.GITHUB_MCP_TOKEN
+    if (this.connected) {
+      this.connectionState = "REUSED";
+      console.log(`[MCP] lazyConnect requested, returning existing active client (github). State: ${this.connectionState} (instanceId: ${this.instanceId})`, "clientRef:", this.client ? "exists" : "null");
+      return;
+    }
+
+    if (!this._circuitBreaker.recordAttempt()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked: circuit breaker tripped for provider ${this.name}`);
+    }
+
+    this.connectionState = "CONNECTING";
+    console.log(`[GitHubMcpProvider] Lazy connecting to GitHub MCP server (instanceId: ${this.instanceId})...`);
+    console.log("[MCP] connect() called: github", new Date().toISOString(), "InstanceId:", this.instanceId);
+
+    try {
+      this.transport = new StdioClientTransport({
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        env: {
+          ...process.env,
+          GITHUB_PERSONAL_ACCESS_TOKEN: EXTERNAL_MCP_CONFIG.GITHUB_MCP_TOKEN
+        }
+      });
+
+      this.client = new Client(
+        { name: "brag-github-client", version: "1.0.0" },
+        { capabilities: {} }
+      );
+
+      await withTimeout(
+        this.client.connect(this.transport),
+        15000,
+        "GitHub MCP server connection handshake timed out."
+      );
+
+      this.connected = true;
+      this.connectionState = "CONNECTED";
+      console.log(`[GitHubMcpProvider] Connected to GitHub MCP server successfully (instanceId: ${this.instanceId}).`);
+    } catch (err) {
+      this.connected = false;
+      if (this._circuitBreaker.isTripped()) {
+        this.connectionState = "CIRCUIT_OPEN";
+      } else {
+        this.connectionState = "FAILED";
       }
-    });
-
-    this.client = new Client(
-      { name: "brag-github-client", version: "1.0.0" },
-      { capabilities: {} }
-    );
-
-    await withTimeout(
-      this.client.connect(this.transport),
-      15000,
-      "GitHub MCP server connection handshake timed out."
-    );
-
-    this.connected = true;
-    console.log("[GitHubMcpProvider] Connected to GitHub MCP server successfully.");
+      console.error(`[GitHubMcpProvider] Connection failed (instanceId: ${this.instanceId}):`, err.message || err);
+      throw err;
+    }
   }
 
   async listTools(mode) {
@@ -344,7 +381,10 @@ export class GitHubMcpProvider {
   }
 
   async reset() {
-    console.log("[GitHubMcpProvider] Resetting connection.");
+    console.log(`[GitHubMcpProvider] Resetting connection (instanceId: ${this.instanceId}).`);
+    this.connectionState = "DISCONNECTED";
+    this.connected = false;
+    this._circuitBreaker.reset();
     if (this.transport) {
       try {
         await this.transport.close();
@@ -352,7 +392,6 @@ export class GitHubMcpProvider {
     }
     this.client = null;
     this.transport = null;
-    this.connected = false;
     this._isAvailable = undefined;
     this._repoInfo = undefined;
   }

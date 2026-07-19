@@ -53,7 +53,7 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
   const hasApiKey = (prov) => {
     if (prov === 'gemini') return !!process.env.GEMINI_API_KEY;
     if (prov === 'openai') return !!process.env.OPENAI_API_KEY;
-    if (prov === 'deepseek') return !!process.env.DEEPSEEK_API_KEY;
+    if (prov === 'deepseek') return !!(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP);
     return false;
   };
 

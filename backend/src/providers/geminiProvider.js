@@ -107,6 +107,12 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
       };
     }
     if (msg.toolCalls) {
+      if (msg.geminiParts) {
+        return {
+          role: 'model',
+          parts: msg.geminiParts
+        };
+      }
       return {
         role: 'model',
         parts: msg.toolCalls.map(tc => ({
@@ -228,7 +234,8 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
             id: fc.id || fc.name,
             name: fc.name,
             args: fc.args
-          }))
+          })),
+          geminiParts: candidate?.content?.parts
         };
       }
 

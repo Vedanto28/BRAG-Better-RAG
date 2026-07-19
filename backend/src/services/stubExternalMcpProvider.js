@@ -9,6 +9,9 @@ export class StubExternalMcpProvider {
   }
 
   async isAvailable() {
+    if (this._isAvailable !== undefined) {
+      return this._isAvailable;
+    }
     return EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP;
   }
 
@@ -57,6 +60,34 @@ export class StubExternalMcpProvider {
         }
       },
       {
+        name: "list_commits",
+        description: "List commits in the remote repository (stub/mock external evidence).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            per_page: {
+              type: "number",
+              description: "Number of commits per page."
+            }
+          },
+          required: []
+        }
+      },
+      {
+        name: "list_pull_requests",
+        description: "List pull requests in the remote repository (stub/mock external evidence).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            state: {
+              type: "string",
+              description: "PR state: open, closed, or all."
+            }
+          },
+          required: []
+        }
+      },
+      {
         name: "navigate_page",
         description: "Go to a URL (stub/mock external evidence).",
         inputSchema: {
@@ -82,6 +113,15 @@ export class StubExternalMcpProvider {
       {
         name: "list_network_requests",
         description: "List network requests (stub/mock external evidence).",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          required: []
+        }
+      },
+      {
+        name: "take_screenshot",
+        description: "Take a screenshot of the current page (stub/mock external evidence).",
         inputSchema: {
           type: "object",
           properties: {},
@@ -164,6 +204,30 @@ export class StubExternalMcpProvider {
               state: "closed",
               diffSummary: "Modified server.js and db.js"
             }, null, 2)
+          }
+        ]
+      };
+    }
+    if (name === "list_commits") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify([
+              { hash: "b7ee318", author: "stub-user", message: "refactor auth middleware" }
+            ], null, 2)
+          }
+        ]
+      };
+    }
+    if (name === "list_pull_requests") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify([
+              { prNumber: 101, title: "Refactor database config", state: "closed" }
+            ], null, 2)
           }
         ]
       };
@@ -258,6 +322,12 @@ export class StubExternalMcpProvider {
       summary = `Stub PR search for: "${args.query || ''}"`;
     } else if (toolName === "getPullRequestDetails") {
       summary = `Stub PR details for PR #${args.prNumber || 'unknown'}`;
+    } else if (toolName === "list_commits") {
+      evidenceType = "commit";
+      summary = "Stub listed recent commits";
+    } else if (toolName === "list_pull_requests") {
+      evidenceType = "pull_request";
+      summary = "Stub listed recent pull requests";
     } else if (toolName === "navigate_page") {
       evidenceType = "browser_runtime";
       summary = `Stub navigated browser to: ${args.url ? args.url.split('?')[0] : 'history/reload'}`;
@@ -300,6 +370,7 @@ export class StubExternalMcpProvider {
   async reset() {
     console.log("[StubExternalMcpProvider] Resetting connection.");
     this.connected = false;
+    this._isAvailable = undefined;
   }
 }
 

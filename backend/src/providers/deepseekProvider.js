@@ -19,9 +19,9 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     throw err;
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP;
   if (!apiKey) {
-    const err = new Error('DEEPSEEK_API_KEY is not set.');
+    const err = new Error('DEEPSEEK_API_KEY or DEEPSEEK_MCP is not set.');
     err.category = 'Authentication';
     throw err;
   }

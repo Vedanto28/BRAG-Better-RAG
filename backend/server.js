@@ -33,12 +33,14 @@ app.get('/api/health', (req, res) => {
 
 // MCP Server SSE Endpoint
 app.get('/api/sse', async (req, res) => {
-  console.log('[Express] Establishing SSE connection for MCP...');
+  const currentSessionId = req.query.sessionId || 'unknown';
+  console.log(`[Express] Establishing SSE connection for MCP... currentSessionId query: ${currentSessionId}`);
   const transport = new SSEServerTransport('/api/messages', res);
+  console.log(`[Express] Created SSEServerTransport. SessionId: ${transport.sessionId}. Active server transport presence: ${mcpServer.transport ? "present" : "absent"}`);
   mcpTransports[transport.sessionId] = transport;
 
   res.on('close', async () => {
-    console.log(`[Express] SSE connection closed for session: ${transport.sessionId}`);
+    console.log(`[Express] SSE connection closed for session: ${transport.sessionId}. Was it active server transport? ${mcpServer.transport === transport}`);
     delete mcpTransports[transport.sessionId];
     try {
       if (mcpServer.transport === transport) {
@@ -50,10 +52,12 @@ app.get('/api/sse', async (req, res) => {
 
   try {
     if (mcpServer.transport) {
+      console.log(`[Express] Closing active server transport (sessionId: ${mcpServer.transport.sessionId}) to connect new transport (sessionId: ${transport.sessionId})`);
       await mcpServer.close();
     }
   } catch (e) {}
   await mcpServer.connect(transport);
+  console.log(`[Express] Connected new transport (sessionId: ${transport.sessionId}) to mcpServer.`);
 });
 
 // MCP Server POST Messages Endpoint

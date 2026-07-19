@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { EXTERNAL_MCP_CONFIG } from '../utils/config.js';
 import { redactSecrets } from '../utils/logParser.js';
 import fs from 'node:fs';
+import { ConnectionCircuitBreaker } from './connectionCircuitBreaker.js';
 
 // Helper to run promises with a timeout
 async function withTimeout(promise, timeoutMs = 10000, errorMsg = "Operation timed out") {
@@ -104,6 +105,13 @@ export class ChromeDevToolsMcpProvider {
     this._isAvailable = undefined;
     this.connectionId = 0;
     this.callCount = 0;
+    this.instanceId = "chrome-" + Math.random().toString(36).substring(2, 10);
+    this.connectionState = "DISCONNECTED";
+    this._circuitBreaker = new ConnectionCircuitBreaker(
+      "chrome-devtools",
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_MAX_ATTEMPTS,
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_WINDOW_MS
+    );
 
     // Read-only / Diagnostic tools allowed
     this.allowedTools = [
@@ -173,44 +181,72 @@ export class ChromeDevToolsMcpProvider {
   }
 
   async lazyConnect() {
-    if (this.connected) return;
-
-    this.connectionId++;
-    console.log(`[ChromeDevToolsMcpProvider] Lazy connecting to Chrome DevTools MCP server (connectionId: ${this.connectionId})...`);
-
-    const args = ["-y", "chrome-devtools-mcp@latest"];
-    if (EXTERNAL_MCP_CONFIG.CHROME_REMOTE_DEBUGGING_URL) {
-      args.push("--browserUrl", EXTERNAL_MCP_CONFIG.CHROME_REMOTE_DEBUGGING_URL);
-    } else {
-      args.push("--headless");
-      if (EXTERNAL_MCP_CONFIG.CHROME_EXECUTABLE_PATH) {
-        args.push("--executablePath", EXTERNAL_MCP_CONFIG.CHROME_EXECUTABLE_PATH);
-      }
+    if (this._circuitBreaker.isTripped()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked by circuit breaker for provider ${this.name}`);
     }
 
-    this.transport = new StdioClientTransport({
-      command: "npx",
-      args,
-      env: {
-        ...process.env
+    if (this.connected) {
+      this.connectionState = "REUSED";
+      console.log(`[MCP] lazyConnect requested, returning existing active client (chrome). State: ${this.connectionState} (instanceId: ${this.instanceId})`, "clientRef:", this.client ? "exists" : "null");
+      return;
+    }
+
+    if (!this._circuitBreaker.recordAttempt()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked: circuit breaker tripped for provider ${this.name}`);
+    }
+
+    this.connectionState = "CONNECTING";
+    this.connectionId++;
+    console.log(`[ChromeDevToolsMcpProvider] Lazy connecting to Chrome DevTools MCP server (connectionId: ${this.connectionId}, instanceId: ${this.instanceId})...`);
+    console.log("[MCP] connect() called: chrome", new Date().toISOString(), "InstanceId:", this.instanceId, "connectionId:", this.connectionId);
+
+    try {
+      const args = ["-y", "chrome-devtools-mcp@latest"];
+      if (EXTERNAL_MCP_CONFIG.CHROME_REMOTE_DEBUGGING_URL) {
+        args.push("--browserUrl", EXTERNAL_MCP_CONFIG.CHROME_REMOTE_DEBUGGING_URL);
+      } else {
+        args.push("--headless");
+        if (EXTERNAL_MCP_CONFIG.CHROME_EXECUTABLE_PATH) {
+          args.push("--executablePath", EXTERNAL_MCP_CONFIG.CHROME_EXECUTABLE_PATH);
+        }
       }
-    });
 
-    this.client = new Client(
-      { name: "brag-chrome-client", version: "1.0.0" },
-      { capabilities: {} }
-    );
+      this.transport = new StdioClientTransport({
+        command: "npx",
+        args,
+        env: {
+          ...process.env
+        }
+      });
 
-    const startConnect = Date.now();
-    await withTimeout(
-      this.client.connect(this.transport),
-      20000,
-      "Chrome DevTools MCP server connection handshake timed out."
-    );
-    const duration = Date.now() - startConnect;
+      this.client = new Client(
+        { name: "brag-chrome-client", version: "1.0.0" },
+        { capabilities: {} }
+      );
 
-    this.connected = true;
-    console.log(`[ChromeDevToolsMcpProvider] Connected to Chrome DevTools MCP server successfully (connectionId: ${this.connectionId}) in ${duration}ms.`);
+      const startConnect = Date.now();
+      await withTimeout(
+        this.client.connect(this.transport),
+        20000,
+        "Chrome DevTools MCP server connection handshake timed out."
+      );
+      const duration = Date.now() - startConnect;
+
+      this.connected = true;
+      this.connectionState = "CONNECTED";
+      console.log(`[ChromeDevToolsMcpProvider] Connected to Chrome DevTools MCP server successfully (connectionId: ${this.connectionId}, instanceId: ${this.instanceId}) in ${duration}ms.`);
+    } catch (err) {
+      this.connected = false;
+      if (this._circuitBreaker.isTripped()) {
+        this.connectionState = "CIRCUIT_OPEN";
+      } else {
+        this.connectionState = "FAILED";
+      }
+      console.error(`[ChromeDevToolsMcpProvider] Connection failed (instanceId: ${this.instanceId}):`, err.message || err);
+      throw err;
+    }
   }
 
   async listTools(mode) {
@@ -329,7 +365,10 @@ export class ChromeDevToolsMcpProvider {
   }
 
   async reset() {
-    console.log("[ChromeDevToolsMcpProvider] Resetting connection.");
+    console.log(`[ChromeDevToolsMcpProvider] Resetting connection (instanceId: ${this.instanceId}).`);
+    this.connectionState = "DISCONNECTED";
+    this.connected = false;
+    this._circuitBreaker.reset();
     if (this.transport) {
       try {
         await this.transport.close();
@@ -337,7 +376,6 @@ export class ChromeDevToolsMcpProvider {
     }
     this.client = null;
     this.transport = null;
-    this.connected = false;
     this._isAvailable = undefined;
   }
 }

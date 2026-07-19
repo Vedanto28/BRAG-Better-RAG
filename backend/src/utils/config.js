@@ -11,13 +11,15 @@ export const AI_CONFIG = {
 
 export const EXTERNAL_MCP_CONFIG = {
   MOCK_EXTERNAL_MCP: process.env.MOCK_EXTERNAL_MCP === 'true',
-  GITHUB_MCP_ENABLED: process.env.GITHUB_MCP_ENABLED === 'true' || !!(process.env['GITHUB-MCP'] || process.env.GITHUB_MCP_TOKEN),
-  GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN || process.env['GITHUB-MCP'] || '',
+  GITHUB_MCP_ENABLED: process.env.GITHUB_MCP_ENABLED === 'true' || !!(process.env['GITHUB-MCP'] || process.env.GITHUB_MCP_TOKEN || process.env.GITHUB_MCP),
+  GITHUB_MCP_TOKEN: process.env.GITHUB_MCP_TOKEN || process.env['GITHUB-MCP'] || process.env.GITHUB_MCP || '',
   CHROME_MCP_ENABLED: process.env.CHROME_MCP_ENABLED === 'true' || process.env.CHROME_DEVTOOLS_MCP_ENABLED === 'true',
   CHROME_EXECUTABLE_PATH: process.env.CHROME_EXECUTABLE_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   CHROME_REMOTE_DEBUGGING_URL: process.env.CHROME_REMOTE_DEBUGGING_URL || '',
   CHROME_MCP_ALLOW_EXTERNAL_URLS: process.env.CHROME_MCP_ALLOW_EXTERNAL_URLS === 'true',
-  CONTEXT7_MCP_ENABLED: process.env.CONTEXT7_MCP_ENABLED === 'true' || !!(process.env['CONTEXT7-MCP'] || process.env.CONTEXT7_MCP_TOKEN),
-  CONTEXT7_MCP_TOKEN: process.env.CONTEXT7_MCP_TOKEN || process.env['CONTEXT7-MCP'] || '',
+  CONTEXT7_MCP_ENABLED: process.env.CONTEXT7_MCP_ENABLED === 'true' || !!(process.env['CONTEXT7-MCP'] || process.env.CONTEXT7_MCP_TOKEN || process.env.CONTEXT7_MCP),
+  CONTEXT7_MCP_TOKEN: process.env.CONTEXT7_MCP_TOKEN || process.env['CONTEXT7-MCP'] || process.env.CONTEXT7_MCP || '',
+  CIRCUIT_BREAKER_MAX_ATTEMPTS: parseInt(process.env.MCP_CIRCUIT_BREAKER_MAX_ATTEMPTS || '3', 10),
+  CIRCUIT_BREAKER_WINDOW_MS: parseInt(process.env.MCP_CIRCUIT_BREAKER_WINDOW_MS || '60000', 10),
 };
 

@@ -124,7 +124,6 @@ async function runTests() {
   if (!isAvailable) {
     console.log("ℹ️ Skipping live GitHub MCP server checks (GitHub provider is not available or token/repo verification failed).");
     process.env.MOCK_EXTERNAL_MCP = originalMock;
-    gitHubMcpProvider._resolveRepoInfo = originalResolve;
   } else {
     await startServer();
     try {

@@ -9,6 +9,7 @@ const MECHAMARU_SYSTEM_INSTRUCTION =
   "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
   "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), a log-parsing tool (parseErrorLog), remote repository tools (GitHub MCP), browser runtime diagnostic tools (Chrome DevTools MCP), and live technical documentation lookup tools (Context7 MCP).\n\n" +
   "STRICT RULES FOR TOOL USE:\n" +
+  "0. MANDATORY GROUNDING: Whenever a query is routed to a mode that initializes MCP tools, you MUST execute the appropriate tools to ground your claims. Do NOT answer from your own pre-trained training knowledge without calling the relevant tools to inspect the current documentation, repository status, or runtime behavior. Answering without tool calls is an automatic failure.\n" +
   "1. Only use codebase/Git/log-parsing tools when the question is about THIS connected codebase's actual implementation, errors, or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today', or when a stack trace/error log is pasted).\n" +
   "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
   "3. If the user's message contains a pasted error log or stack trace, you MUST call parseErrorLog on that exact text before speculating about the cause.\n" +
@@ -266,7 +267,8 @@ export async function runAgentOrchestrator(message, signal) {
 
           sessionMessages.push({
             role: 'assistant',
-            toolCalls: result.toolCalls
+            toolCalls: result.toolCalls,
+            geminiParts: result.geminiParts
           });
 
           for (const toolCall of result.toolCalls) {

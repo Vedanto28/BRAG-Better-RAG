@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { EXTERNAL_MCP_CONFIG } from '../utils/config.js';
 import { redactSecrets } from '../utils/logParser.js';
+import { ConnectionCircuitBreaker } from './connectionCircuitBreaker.js';
 
 // Helper to run promises with a timeout
 async function withTimeout(promise, timeoutMs = 10000, errorMsg = "Operation timed out") {
@@ -73,6 +74,13 @@ export class Context7McpProvider {
     this._isAvailable = undefined;
     this.connectionId = 0;
     this.callCount = 0;
+    this.instanceId = "context7-" + Math.random().toString(36).substring(2, 10);
+    this.connectionState = "DISCONNECTED";
+    this._circuitBreaker = new ConnectionCircuitBreaker(
+      "context7",
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_MAX_ATTEMPTS,
+      EXTERNAL_MCP_CONFIG.CIRCUIT_BREAKER_WINDOW_MS
+    );
 
     // Allowed read-only tools matching real Context7 MCP server
     this.allowedTools = [
@@ -147,29 +155,57 @@ export class Context7McpProvider {
   }
 
   async lazyConnect() {
-    if (this.connected) return;
+    if (this._circuitBreaker.isTripped()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked by circuit breaker for provider ${this.name}`);
+    }
 
+    if (this.connected) {
+      this.connectionState = "REUSED";
+      console.log(`[MCP] lazyConnect requested, returning existing active client (context7). State: ${this.connectionState} (instanceId: ${this.instanceId})`, "clientRef:", this.client ? "exists" : "null");
+      return;
+    }
+
+    if (!this._circuitBreaker.recordAttempt()) {
+      this.connectionState = "CIRCUIT_OPEN";
+      throw new Error(`Connection blocked: circuit breaker tripped for provider ${this.name}`);
+    }
+
+    this.connectionState = "CONNECTING";
     this.connectionId++;
-    console.log(`[Context7McpProvider] Lazy connecting to Context7 MCP server (connectionId: ${this.connectionId})...`);
+    console.log(`[Context7McpProvider] Lazy connecting to Context7 MCP server (connectionId: ${this.connectionId}, instanceId: ${this.instanceId})...`);
+    console.log("[MCP] connect() called: context7", new Date().toISOString(), "InstanceId:", this.instanceId, "connectionId:", this.connectionId);
 
-    this.transport = new StdioClientTransport({
-      command: "npx",
-      args: ["-y", "@upstash/context7-mcp", "--api-key", EXTERNAL_MCP_CONFIG.CONTEXT7_MCP_TOKEN]
-    });
+    try {
+      this.transport = new StdioClientTransport({
+        command: "npx",
+        args: ["-y", "@upstash/context7-mcp", "--api-key", EXTERNAL_MCP_CONFIG.CONTEXT7_MCP_TOKEN]
+      });
 
-    this.client = new Client(
-      { name: "brag-context7-client", version: "1.0.0" },
-      { capabilities: {} }
-    );
+      this.client = new Client(
+        { name: "brag-context7-client", version: "1.0.0" },
+        { capabilities: {} }
+      );
 
-    await withTimeout(
-      this.client.connect(this.transport),
-      15000,
-      "Context7 MCP server connection handshake timed out."
-    );
+      await withTimeout(
+        this.client.connect(this.transport),
+        15000,
+        "Context7 MCP server connection handshake timed out."
+      );
 
-    this.connected = true;
-    console.log("[Context7McpProvider] Connected to Context7 MCP server successfully.");
+      this.connected = true;
+      this.connectionState = "CONNECTED";
+      console.log(`[Context7McpProvider] Connected to Context7 MCP server successfully (instanceId: ${this.instanceId}).`);
+    } catch (err) {
+      this.connected = false;
+      if (this._circuitBreaker.isTripped()) {
+        this.connectionState = "CIRCUIT_OPEN";
+      } else {
+        this.connectionState = "FAILED";
+      }
+      console.error(`[Context7McpProvider] Connection failed (instanceId: ${this.instanceId}):`, err.message || err);
+      throw err;
+    }
   }
 
   async listTools(mode) {
@@ -262,7 +298,10 @@ export class Context7McpProvider {
   }
 
   async reset() {
-    console.log("[Context7McpProvider] Resetting connection.");
+    console.log(`[Context7McpProvider] Resetting connection (instanceId: ${this.instanceId}).`);
+    this.connectionState = "DISCONNECTED";
+    this.connected = false;
+    this._circuitBreaker.reset();
     if (this.transport) {
       try {
         await this.transport.close();
@@ -270,7 +309,6 @@ export class Context7McpProvider {
     }
     this.client = null;
     this.transport = null;
-    this.connected = false;
     this._isAvailable = undefined;
     this.callCount = 0;
   }
