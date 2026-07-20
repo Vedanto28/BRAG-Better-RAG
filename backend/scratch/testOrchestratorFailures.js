@@ -50,6 +50,7 @@ function clearHooks() {
   delete process.env.TEST_OPENAI_FAIL_ALL;
   delete process.env.TEST_GEMINI_RETRY_SEQUENCE;
   delete process.env.TEST_GEMINI_PERMANENT_ERROR;
+  delete process.env.TEST_INTERNAL_MCP_TOOL_ERROR;
 }
 
 const baseUrl = `http://localhost:${TEST_PORT}`;
@@ -203,6 +204,38 @@ async function runTestE() {
   console.log("Test E: PASS");
 }
 
+async function runTestF() {
+  console.log("\n==================================================");
+  console.log("RUNNING Test F: Graceful degradation on mid-investigation tool failure");
+  console.log("==================================================");
+  clearHooks();
+  process.env.TEST_INTERNAL_MCP_TOOL_ERROR = 'true';
+  const oldMockLlm = process.env.MOCK_LLM;
+  process.env.MOCK_LLM = 'true';
+
+  const res = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: "Check login route code." })
+  });
+
+  const data = await res.json();
+  console.log("Answer:", data.answer);
+  console.log("Metadata:", data.metadata);
+
+  if (data.success !== true) {
+    throw new Error(`Expected success to be true despite tool failure, got ${data.success}`);
+  }
+  if (!data.metadata.toolUsed || data.metadata.toolsUsed.length === 0) {
+    throw new Error(`Expected LLM to attempt calling tools before failing.`);
+  }
+  if (data.metadata.toolCallLimitReached === true) {
+    throw new Error(`Expected tool limit not to be reached.`);
+  }
+  console.log("Test F: PASS");
+  process.env.MOCK_LLM = oldMockLlm;
+}
+
 async function main() {
   await startServer();
   try {
@@ -211,8 +244,9 @@ async function main() {
     await runTestC();
     await runTestD();
     await runTestE();
+    await runTestF();
     console.log("\n==================================================");
-    console.log("ALL TESTS A-E PASSED SUCCESSFULLY!");
+    console.log("ALL TESTS A-F PASSED SUCCESSFULLY!");
     console.log("==================================================");
     clearHooks();
     await stopServer();

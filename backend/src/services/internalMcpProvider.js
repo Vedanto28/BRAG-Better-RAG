@@ -62,6 +62,9 @@ export class InternalMcpProvider {
   }
 
   async callTool({ name, arguments: args }) {
+    if (process.env.TEST_INTERNAL_MCP_TOOL_ERROR === 'true') {
+      throw new Error('Mocked mid-investigation tool failure');
+    }
     const client = await getMcpClient();
     return client.callTool({
       name,

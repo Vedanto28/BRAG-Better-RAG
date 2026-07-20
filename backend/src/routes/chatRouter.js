@@ -10,7 +10,27 @@ chatRouter.post('/chat', async (req, res) => {
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Message is required.',
+        error: {
+          message: 'Message is required.',
+          code: 'VALIDATION_ERROR'
+        },
+        metadata: {
+          provider: "unknown",
+          contextFound: false,
+          toolUsed: null,
+          mode: "unknown",
+          toolsUsed: [],
+          inspectedPaths: [],
+          debuggingMatches: [],
+          commitsInspected: [],
+          logEvidence: { errorType: "", groupedOccurrences: 0, framesReferenced: [] },
+          externalEvidence: [],
+          toolCallsUsed: 0,
+          toolCallLimitReached: false,
+          capabilityPlan: {},
+          executionGuidance: { suggestedPriority: [], suggestedBudgetGuidance: "" },
+          observabilityTrace: {}
+        }
       });
     }
 
@@ -24,7 +44,27 @@ chatRouter.post('/chat', async (req, res) => {
       : 'Mechamaru could not process that message.';
     res.status(status).json({
       success: false,
-      message: clientMessage,
+      error: {
+        message: clientMessage,
+        code: status === 400 ? 'VALIDATION_ERROR' : 'INTERNAL_SERVER_ERROR'
+      },
+      metadata: {
+        provider: "unknown",
+        contextFound: false,
+        toolUsed: null,
+        mode: "unknown",
+        toolsUsed: [],
+        inspectedPaths: [],
+        debuggingMatches: [],
+        commitsInspected: [],
+        logEvidence: { errorType: "", groupedOccurrences: 0, framesReferenced: [] },
+        externalEvidence: [],
+        toolCallsUsed: 0,
+        toolCallLimitReached: false,
+        capabilityPlan: {},
+        executionGuidance: { suggestedPriority: [], suggestedBudgetGuidance: "" },
+        observabilityTrace: {}
+      }
     });
   }
 });

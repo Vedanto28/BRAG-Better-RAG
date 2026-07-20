@@ -3,7 +3,33 @@ import { generateResponse } from '../providers/providerInterface.js';
 import mcpRegistry from './mcpRegistry.js';
 import { AI_CONFIG } from '../utils/config.js';
 import { buildDeterministicFallback } from '../providers/geminiProvider.js';
-import { isLogStructured } from '../utils/logParser.js';
+import { isLogStructured, redactSecrets } from '../utils/logParser.js';
+import { planCapabilities } from './capabilityPlanner.js';
+
+export function redactSensitiveData(text) {
+  if (typeof text !== 'string') return text;
+  let redacted = text;
+  
+  // Independent safety layer for secrets that might be mid-line or multiple per line
+  const globalSecretRegex = /\b([a-zA-Z0-9_\-]*?(?:key|secret|password|token)[a-zA-Z0-9_\-]*?\s*[:=]\s*)(["']?)([^\r\n"'\s]{10,})\2/gi;
+  redacted = redacted.replace(globalSecretRegex, (match, keyAndEq, quote, secretValue) => {
+    return keyAndEq + quote + '[REDACTED]' + quote;
+  });
+
+  redacted = redactSecrets(redacted);
+  
+  // Redact absolute paths to workspace
+  const rootPath = process.env.REPO_ROOT_PATH || process.cwd();
+  redacted = redacted.split(rootPath).join('[REPO_ROOT]');
+  
+  // Handle Windows paths
+  const rootPathForward = rootPath.replace(/\\/g, '/');
+  if (rootPathForward !== rootPath) {
+    redacted = redacted.split(rootPathForward).join('[REPO_ROOT]');
+  }
+  
+  return redacted;
+}
 
 const MECHAMARU_SYSTEM_INSTRUCTION =
   "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
@@ -156,6 +182,12 @@ export async function runAgentOrchestrator(message, signal) {
     throw err;
   }
 
+  const startTime = Date.now();
+  let tPlanningStart, tPlanningMs = 0;
+  let tRegistryStart, tRegistryMs = 0;
+  let tToolExecutionTotalMs = 0;
+  let tLlmTotalMs = 0;
+
   const trimmedMessage = message.trim();
   if (trimmedMessage.length > AI_CONFIG.MAX_USER_MESSAGE_CHARS) {
     const err = new Error(`Message is too long. Maximum length is ${AI_CONFIG.MAX_USER_MESSAGE_CHARS} characters.`);
@@ -192,7 +224,7 @@ export async function runAgentOrchestrator(message, signal) {
     contextText = contextText.slice(0, AI_CONFIG.MAX_CONTEXT_CHARS) + '\n... [truncated due to size limits]';
   }
 
-  const fullSystemPrompt = contextFound
+  let fullSystemPrompt = contextFound
     ? `${MECHAMARU_SYSTEM_INSTRUCTION}\n\nRetrieved Context:\n${contextText}`
     : MECHAMARU_SYSTEM_INSTRUCTION;
 
@@ -201,11 +233,19 @@ export async function runAgentOrchestrator(message, signal) {
     globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
   }
 
+  tPlanningStart = Date.now();
+  const plan = planCapabilities(trimmedMessage);
   const sessionMessages = [...globalHistory, { role: 'user', content: trimmedMessage }];
   // Route determines which evidence mode to use. normal_chat and knowledge_debugging bypass MCP
-  // entirely (no tool init, no connection cost). All other modes open the MCP connection.
+  // entirely (no tool init, no connection cost).
   const mode = routeRequest(trimmedMessage, debuggingMatches);
   const needsTool = mode !== "normal_chat" && mode !== "knowledge_debugging";
+  tPlanningMs = Date.now() - tPlanningStart;
+
+  if (needsTool && plan.suggestedPriority && plan.suggestedPriority.length > 0) {
+      const advisoryGuidance = `\n\n=== EXECUTION GUIDANCE (ADVISORY ONLY) ===\nPriority Order Hint: ${plan.suggestedPriority.join(" -> ")}\nBudget Guidance: ${plan.suggestedBudgetGuidance}\n\nNote: You retain full authority to select whichever tools are necessary. This is merely a suggestion based on the initial query shape. The 6-call limit still applies.`;
+      fullSystemPrompt += advisoryGuidance;
+  }
 
   let finalAnswer = null;
   let responseProvider = null;
@@ -219,16 +259,20 @@ export async function runAgentOrchestrator(message, signal) {
   const externalEvidence = [];
   let toolCallCount = 0;
   let toolCallLimitReached = false;
+  let exposedProviders = [];
+  let registryAvailableTools = 0;
 
 
   if (!needsTool) {
     console.log(`[Orchestrator] Question classified as ${mode}. Bypassing MCP tools.`);
     try {
+      const tLlmStart = Date.now();
       const result = await generateResponse({
         messages: sessionMessages,
         systemPrompt: fullSystemPrompt,
         tools: []
       });
+      tLlmTotalMs += Date.now() - tLlmStart;
       finalAnswer = result.text;
       responseProvider = result.provider;
     } catch (error) {
@@ -241,7 +285,12 @@ export async function runAgentOrchestrator(message, signal) {
     let mcpTools = [];
 
     try {
-      mcpTools = await mcpRegistry.getToolsForMode(mode, trimmedMessage);
+      tRegistryStart = Date.now();
+      const registryResult = await mcpRegistry.getToolsForMode(mode, trimmedMessage);
+      mcpTools = registryResult.tools || [];
+      exposedProviders = registryResult.exposedProviders || [];
+      registryAvailableTools = mcpTools.length;
+      tRegistryMs = Date.now() - tRegistryStart;
     } catch (registryError) {
       console.warn("[Orchestrator] MCP Registry tool discovery failed or unavailable. Resetting capability providers.", registryError.message || registryError);
       await mcpRegistry.resetAll();
@@ -254,11 +303,13 @@ export async function runAgentOrchestrator(message, signal) {
         stepCount++;
         console.log(`[Orchestrator] Agent Step ${stepCount}/${AI_CONFIG.MAX_AGENT_STEPS}`);
 
+        const tLlmStart = Date.now();
         const result = await generateResponse({
           messages: sessionMessages,
           systemPrompt: fullSystemPrompt,
           tools: mcpTools
         });
+        tLlmTotalMs += Date.now() - tLlmStart;
 
         responseProvider = result.provider;
 
@@ -322,11 +373,13 @@ export async function runAgentOrchestrator(message, signal) {
             }
 
             try {
+              const tToolStart = Date.now();
               const { toolResult, provider: owningProvider } = await mcpRegistry.callTool({
                 name: toolCall.name,
                 arguments: toolCall.args,
                 signal
               });
+              tToolExecutionTotalMs += Date.now() - tToolStart;
 
               const contentText = (toolResult.content || []).map(c => c.text).join('\n');
               console.log(`[Orchestrator] Tool result:`, contentText);
@@ -389,12 +442,13 @@ export async function runAgentOrchestrator(message, signal) {
               });
             } catch (execError) {
               console.error(`[Orchestrator] Tool execution error for ${toolCall.name}:`, execError.message || execError);
-              await mcpRegistry.resetAll();
+              // We do NOT call await mcpRegistry.resetAll() here. We gracefully fail closed 
+              // and let the LLM continue investigating with remaining active providers or partial evidence.
               sessionMessages.push({
                 role: 'tool',
                 toolCallId: toolCall.id,
                 name: toolCall.name,
-                content: JSON.stringify({ error: `Failed to execute tool: ${execError.message || String(execError)}` })
+                content: JSON.stringify({ error: `Failed to execute tool: ${execError.message || String(execError)}. Proceed with gathered evidence.` })
               });
             }
           }
@@ -444,24 +498,72 @@ export async function runAgentOrchestrator(message, signal) {
     throw new Error('Failed to generate a valid non-empty response.');
   }
 
-  // Metadata: single construction point shared by all modes.
-  // All fields are always present; unused fields are empty arrays/strings.
+  // Redact sensitive data globally
+  finalAnswer = redactSensitiveData(finalAnswer);
+  
+  const totalMs = Date.now() - startTime;
+  const outcomeSummary = responseProvider === 'fallback' 
+    ? "Fell back to deterministic RAG after LLM failure."
+    : needsTool 
+      ? (toolCallCount === 0 
+        ? "Answered without calling exposed tools." 
+        : `Answered via ${exposedProviders.length}-provider compound investigation using ${toolCallCount} tools.`)
+      : "Answered via normal chat/debugging knowledge without tools.";
+
+  const finalMetadata = {
+    provider: responseProvider || "unknown",
+    contextFound,
+    toolUsed,
+    mode,
+    toolsUsed: allToolsUsed,
+    inspectedPaths: Array.from(inspectedPaths).map(p => redactSensitiveData(p)),
+    debuggingMatches: debuggingMatches.map(m => m.id),
+    commitsInspected: Array.from(commitsInspected),
+    logEvidence,
+    externalEvidence: externalEvidence.map(ev => ({
+      ...ev,
+      summary: redactSensitiveData(ev.summary),
+      payload: typeof ev.payload === 'string' ? redactSensitiveData(ev.payload) : ev.payload
+    })),
+    toolCallsUsed: Math.min(toolCallCount, AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST),
+    toolCallLimitReached,
+    capabilityPlan: plan,
+    executionGuidance: {
+       suggestedPriority: plan.suggestedPriority || [],
+       suggestedBudgetGuidance: plan.suggestedBudgetGuidance || "",
+    },
+    observabilityTrace: {
+      plannerSnapshot: {
+        mode,
+        capabilities: plan
+      },
+      providerExposure: exposedProviders,
+      comparison: {
+        plannedOrder: plan.suggestedPriority || [],
+        actualOrder: allToolsUsed
+      },
+      timing: {
+        totalMs,
+        planningMs: tPlanningMs,
+        registryMs: tRegistryMs,
+        toolExecutionMs: tToolExecutionTotalMs,
+        llmMs: tLlmTotalMs
+      },
+      toolStatistics: {
+        availableCount: registryAvailableTools,
+        exposedCount: exposedProviders.length,
+        calledCount: toolCallCount,
+        remainingBudget: Math.max(0, AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST - toolCallCount)
+      },
+      outcomeSummary
+    }
+  };
+
+  console.log(JSON.stringify({ type: 'OBSERVABILITY_TRACE', trace: finalMetadata.observabilityTrace }));
+
   return {
     success: true,
     answer: finalAnswer.trim(),
-    metadata: {
-      provider: responseProvider || "unknown",
-      contextFound,
-      toolUsed,
-      mode,
-      toolsUsed: allToolsUsed,
-      inspectedPaths: Array.from(inspectedPaths),
-      debuggingMatches: debuggingMatches.map(m => m.id),
-      commitsInspected: Array.from(commitsInspected),
-      logEvidence,
-      externalEvidence,
-      toolCallsUsed: Math.min(toolCallCount, AI_CONFIG.MAX_TOOL_CALLS_PER_REQUEST),
-      toolCallLimitReached
-    }
+    metadata: finalMetadata
   };
 }

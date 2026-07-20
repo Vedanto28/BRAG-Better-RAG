@@ -25,7 +25,8 @@ const tests = [
   'testChromeDevToolsMcp.js',
   'testContext7Mcp.js',
   'testDocRoutingAndDeepseek.js',
-  'testMcpConnectionLifecycle.js'
+  'testMcpConnectionLifecycle.js',
+  'testCapabilityPlanner.js'
 ];
 
 async function runTest(script) {
@@ -56,16 +57,16 @@ async function runTest(script) {
 
       // Detection signatures for successful completion
       if (
-        chunk.includes("TEST RUN COMPLETED") || 
-        chunk.includes("ALL CONTEXT7 MCP TESTS PASSED") ||
-        chunk.includes("PASSED SUCCESSFULLY") ||
-        chunk.includes("SANITY CHECK PASSED") ||
-        chunk.includes("ALL 7 FOCUS TESTS") ||
-        chunk.includes("STATUS: PASS") ||
-        chunk.includes("STATUS: SUCCESS") ||
-        chunk.includes("SUMMARY") ||
-        chunk.includes("LIFECYCLE TESTS PASSED") ||
-        chunk.includes("Passed:") && chunk.includes("Failed: 0")
+        stdoutBuffer.includes("TEST RUN COMPLETED") || 
+        stdoutBuffer.includes("ALL CONTEXT7 MCP TESTS PASSED") ||
+        stdoutBuffer.includes("PASSED SUCCESSFULLY") ||
+        stdoutBuffer.includes("SANITY CHECK PASSED") ||
+        stdoutBuffer.includes("ALL 7 FOCUS TESTS") ||
+        stdoutBuffer.includes("STATUS: PASS") ||
+        stdoutBuffer.includes("STATUS: SUCCESS") ||
+        stdoutBuffer.includes("SUMMARY") ||
+        stdoutBuffer.includes("LIFECYCLE TESTS PASSED") ||
+        stdoutBuffer.includes("Passed:") && stdoutBuffer.includes("Failed: 0")
       ) {
         if (!resolved) {
           resolved = true;

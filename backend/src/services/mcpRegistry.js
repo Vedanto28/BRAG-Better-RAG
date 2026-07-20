@@ -3,6 +3,7 @@ import stubExternalMcpProvider from './stubExternalMcpProvider.js';
 import gitHubMcpProvider from './gitHubMcpProvider.js';
 import chromeDevToolsMcpProvider from './chromeDevToolsMcpProvider.js';
 import context7McpProvider from './context7McpProvider.js';
+import { planCapabilities } from './capabilityPlanner.js';
 
 export class McpCapabilityRegistry {
   constructor() {
@@ -27,6 +28,10 @@ export class McpCapabilityRegistry {
   async getToolsForMode(mode, query = "") {
     this.toolToProvider.clear();
     const tools = [];
+    const exposedProviders = [];
+
+    const plan = planCapabilities(query);
+    console.log(`[CapabilityPlanner] Query: "${query}" -> Plan:`, JSON.stringify(plan));
 
     for (const p of this.providers) {
       let available = false;
@@ -40,12 +45,16 @@ export class McpCapabilityRegistry {
 
       let relevant = false;
       try {
-        relevant = await p.isRelevantForMode(mode, query);
+        relevant = await p.isRelevantForMode(mode, query) || this.isRelevantForCapabilities(p, plan);
       } catch (err) {
-        console.warn(`[McpRegistry] Provider ${p.name} threw during isRelevantForMode(${mode}). Treating as not relevant.`, err.message || err);
+        console.warn(`[McpRegistry] Provider ${p.name} threw during relevance check. Treating as not relevant.`, err.message || err);
         relevant = false;
       }
       if (!relevant) continue;
+      
+      if (!exposedProviders.includes(p.name)) {
+        exposedProviders.push(p.name);
+      }
 
       try {
         await p.lazyConnect();
@@ -74,7 +83,29 @@ export class McpCapabilityRegistry {
       }
     }
 
-    return tools;
+    return { tools, exposedProviders };
+  }
+
+  isRelevantForCapabilities(provider, plan) {
+    if (!plan) return false;
+
+    if (provider.name === "internal") {
+      return plan.requiresRepository || plan.requiresGit || plan.requiresDebuggingRag || plan.requiresDocumentation;
+    }
+
+    if (provider.name === "github" || provider.name === "stub_external") {
+      return plan.requiresRepository || plan.requiresGit;
+    }
+
+    if (provider.name === "chrome-devtools") {
+      return plan.requiresRuntime;
+    }
+
+    if (provider.name === "context7") {
+      return plan.requiresDocumentation;
+    }
+
+    return false;
   }
 
   getProviderForTool(toolName) {

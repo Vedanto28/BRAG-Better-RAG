@@ -1,4 +1,5 @@
 import { LocalGitProvider } from '../src/providers/localGitProvider.js';
+import { redactSensitiveData } from '../src/services/agentOrchestrator.js';
 
 const provider = new LocalGitProvider('.');
 
@@ -48,4 +49,42 @@ if (!redacted.includes("someNormalValue")) {
 }
 
 console.log("\nSTATUS: PASS");
+
+console.log("\n=== HOLISTIC REDACTION (AgentOrchestrator) ===");
+const fakeRepoRoot = process.cwd();
+const windowsRoot = fakeRepoRoot.replace(/\//g, '\\');
+const mockFinalAnswer = `
+I found a GitHub PR containing this token: token="super_secret_github_token_12345".
+The console logs in Chrome DevTools showed: API_KEY: 'live_browser_key_9876543210'.
+Context7 docs snippet had a mock credential: db_password = "mock_pass_from_docs_56789".
+Also, the error originated at ${fakeRepoRoot}/src/some/file.js.
+On Windows it looks like ${windowsRoot}\\src\\other\\file.js.
+`;
+
+console.log("Original Final Answer:\n", mockFinalAnswer);
+const holisticRedacted = redactSensitiveData(mockFinalAnswer);
+console.log("Redacted Final Answer:\n", holisticRedacted);
+
+if (holisticRedacted.includes("super_secret_github_token_12345")) {
+  console.error("FAIL: Holistic GitHub token not redacted");
+  process.exit(1);
+}
+if (holisticRedacted.includes("live_browser_key_9876543210")) {
+  console.error("FAIL: Holistic browser key not redacted");
+  process.exit(1);
+}
+if (holisticRedacted.includes("mock_pass_from_docs_56789")) {
+  console.error("FAIL: Holistic docs pass not redacted");
+  process.exit(1);
+}
+if (holisticRedacted.includes(fakeRepoRoot) || holisticRedacted.includes(windowsRoot)) {
+  console.error("FAIL: Absolute paths not redacted");
+  process.exit(1);
+}
+if (!holisticRedacted.includes("[REPO_ROOT]/src/some/file.js") && !holisticRedacted.includes("[REPO_ROOT]\\src\\other\\file.js")) {
+  console.error("FAIL: Absolute paths not correctly replaced with [REPO_ROOT]");
+  process.exit(1);
+}
+
+console.log("\nHOLISTIC STATUS: PASS");
 process.exit(0);
