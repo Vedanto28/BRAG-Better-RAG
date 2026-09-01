@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
+import { sendChatMessage } from '../services/chatService.js';
 
 const INITIAL_ERROR = null;
-const API_URL = 'http://localhost:5000/api/chat';
 
 export function useChat() {
   const [history, setHistory] = useState([]);
@@ -22,6 +22,7 @@ export function useChat() {
       id: crypto.randomUUID(),
       role: 'user',
       content: trimmedMessage,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     setHistory((currentHistory) => [...currentHistory, userEntry]);
@@ -30,24 +31,14 @@ export function useChat() {
     setLoading(true);
 
     try {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: trimmedMessage }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Failed to get a response from the server.');
-      }
+      const data = await sendChatMessage(trimmedMessage);
 
       const assistantEntry = {
         id: crypto.randomUUID(),
         role: 'assistant',
         content: data.answer || 'No response returned.',
+        metadata: data.metadata || null,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
       setHistory((currentHistory) => [...currentHistory, assistantEntry]);
