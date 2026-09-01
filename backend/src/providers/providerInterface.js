@@ -3,28 +3,74 @@ import * as openaiProvider from './openaiProvider.js';
 import * as deepseekProvider from './deepseekProvider.js';
 import { AI_CONFIG } from '../utils/config.js';
 
-function withTimeout(promise, ms, errorMessage = 'Request timed out.') {
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const err = new Error(errorMessage);
-      err.category = 'Timeout';
-      reject(err);
-    }, ms);
-  });
-  return Promise.race([
-    promise.then((res) => {
-      clearTimeout(timeoutId);
-      return res;
-    }),
-    timeoutPromise
-  ]);
-}
+/**
+ * Specs for all 6 supported LLM providers.
+ * OpenRouter, Groq, and Cerebras reuse the shared OpenAI-compatible adapter (`openaiProvider`).
+ */
+const PROVIDER_SPECS = {
+  gemini: {
+    module: geminiProvider,
+    envKey: () => process.env.GEMINI_API_KEY
+  },
+  openai: {
+    module: openaiProvider,
+    envKey: () => process.env.OPENAI_API_KEY,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini'
+  },
+  openrouter: {
+    module: openaiProvider,
+    envKey: () => process.env.OPENROUTER_API_KEY,
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openai/gpt-4o-mini'
+  },
+  groq: {
+    module: openaiProvider,
+    envKey: () => process.env.GROQ_API_KEY,
+    baseUrl: 'https://api.groq.com/openai/v1',
+    model: process.env.GROQ_MODEL || 'groq/compound-mini'
+  },
+  cerebras: {
+    module: openaiProvider,
+    envKey: () => process.env.CEREBRAS_API_KEY,
+    baseUrl: 'https://api.cerebras.ai/v1',
+    model: 'llama3.1-8b'
+  },
+  deepseek: {
+    module: deepseekProvider,
+    envKey: () => process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP,
+    model: 'deepseek-chat'
+  }
+};
 
 /**
- * Detect whether an error is a quota/rate-limit failure that should
- * immediately cascade to the next provider without retrying.
+ * SINGLE AUDITABLE SUBSTITUTION POINT
+ * Resolves credential and configuration for a specified provider.
+ * Prefers user-supplied session credentials over server .env keys.
+ * 
+ * @param {string} providerName 
+ * @param {object} [userCredentials] 
+ * @returns {{ apiKey: string|null, source: 'user'|'server'|'none', spec: object }}
  */
+export function resolveProviderCredentials(providerName, userCredentials = {}) {
+  const spec = PROVIDER_SPECS[providerName];
+  if (!spec) {
+    return { apiKey: null, source: 'none', spec: null };
+  }
+
+  const userKey = userCredentials[providerName];
+  if (userKey && typeof userKey === 'string' && userKey.trim().length > 0) {
+    return { apiKey: userKey.trim(), source: 'user', spec };
+  }
+
+  const serverKey = spec.envKey();
+  if (serverKey && typeof serverKey === 'string' && serverKey.trim().length > 0) {
+    return { apiKey: serverKey.trim(), source: 'server', spec };
+  }
+
+  return { apiKey: null, source: 'none', spec };
+}
+
 function isQuotaError(error) {
   if (error.category === 'Quota') return true;
   if (error.status === 429 || error.status === 402) return true;
@@ -32,7 +78,7 @@ function isQuotaError(error) {
   return msg.includes('quota') || msg.includes('rate limit') || msg.includes('insufficient_quota') || msg.includes('resource exhausted');
 }
 
-export async function generateResponse({ messages, systemPrompt, tools }) {
+export async function generateResponse({ messages, systemPrompt, tools, userCredentials = {} }) {
   // MOCK MODE: When MOCK_LLM=true, delegate to the isolated mock handler module.
   // This path must NEVER be reached in production. Set MOCK_LLM=true only in test contexts.
   if (process.env.MOCK_LLM === 'true') {
@@ -40,30 +86,49 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
     return getMockResponse({ messages, systemPrompt, tools });
   }
 
-  const primaryProvider = process.env.LLM_PROVIDER || 'gemini';
-  const secondaryProvider = primaryProvider === 'gemini' ? 'openai' : 'gemini';
-  const tertiaryProvider = 'deepseek';
+  const primaryEnvProvider = process.env.LLM_PROVIDER || 'gemini';
+  const defaultServerChain = [
+    primaryEnvProvider,
+    primaryEnvProvider === 'gemini' ? 'openai' : 'gemini',
+    'deepseek'
+  ];
 
-  const providerMap = {
-    gemini: geminiProvider,
-    openai: openaiProvider,
-    deepseek: deepseekProvider
-  };
+  // 1. Build list of provider execution candidates.
+  // Providers with user-supplied keys take priority over server-configured providers.
+  const executionChain = [];
+  const addedProviders = new Set();
 
-  const hasApiKey = (prov) => {
-    if (prov === 'gemini') return !!process.env.GEMINI_API_KEY;
-    if (prov === 'openai') return !!process.env.OPENAI_API_KEY;
-    if (prov === 'deepseek') return !!(process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP);
-    return false;
-  };
-
-  const callProvider = async (providerName) => {
-    const provModule = providerMap[providerName];
-    if (!provModule) {
-      throw new Error(`Unsupported provider: ${providerName}`);
+  // A. User-supplied key providers first
+  for (const providerName of Object.keys(PROVIDER_SPECS)) {
+    const cred = resolveProviderCredentials(providerName, userCredentials);
+    if (cred.source === 'user') {
+      executionChain.push({ name: providerName, ...cred });
+      addedProviders.add(providerName);
     }
-    console.log(`[Orchestrator] Attempting generation with provider: ${providerName}`);
-    
+  }
+
+  // B. Server-configured providers next (in default fallback order)
+  for (const providerName of defaultServerChain) {
+    if (addedProviders.has(providerName)) continue;
+    const cred = resolveProviderCredentials(providerName, userCredentials);
+    if (cred.source === 'server') {
+      executionChain.push({ name: providerName, ...cred });
+      addedProviders.add(providerName);
+    }
+  }
+
+  if (executionChain.length === 0) {
+    const err = new Error('No available LLM providers. Neither user-supplied keys nor server-configured keys were found.');
+    err.category = 'Authentication';
+    throw err;
+  }
+
+  const errors = [];
+
+  for (const candidate of executionChain) {
+    const { name: providerName, source, apiKey, spec } = candidate;
+    console.log(`[Orchestrator] Attempting generation with provider: ${providerName} (source: ${source})`);
+
     const controller = new AbortController();
     const signal = controller.signal;
 
@@ -72,76 +137,36 @@ export async function generateResponse({ messages, systemPrompt, tools }) {
     }, AI_CONFIG.REQUEST_TIMEOUT_MS);
 
     try {
-      const result = await provModule.generateResponse({
+      const result = await spec.module.generateResponse({
         messages,
         systemPrompt,
         tools,
         maxTokens: AI_CONFIG.MAX_OUTPUT_TOKENS,
-        signal
+        signal,
+        apiKey,
+        baseUrl: spec.baseUrl,
+        model: spec.model
       });
       clearTimeout(timeoutId);
-      return result;
+      return { ...result, provider: providerName, credentialSource: source };
     } catch (error) {
       clearTimeout(timeoutId);
-      if (signal.aborted || error.category === 'Timeout' || error.message?.includes('timed out')) {
-        const err = new Error(`${providerName} request timed out.`);
-        err.category = 'Timeout';
-        throw err;
+      let errMessage = error.message || String(error);
+      // Ensure raw key string is never in logged error text
+      if (apiKey && errMessage.includes(apiKey)) {
+        errMessage = errMessage.replaceAll(apiKey, '[REDACTED_USER_KEY]');
       }
-      throw error;
+      const category = error.category || (signal.aborted ? 'Timeout' : 'Other Upstream Error');
+      console.warn(`[Orchestrator] Provider ${providerName} (${source}) failed. Category: ${category}. Error: ${errMessage}`);
+      
+      const safeError = new Error(errMessage);
+      safeError.category = category;
+      safeError.status = error.status;
+      errors.push({ provider: providerName, source, error: safeError });
     }
-  };
-
-  // --- 3-provider fallback chain: primary → secondary → tertiary ---
-  const errors = [];
-
-  // 1. Try primary provider
-  try {
-    if (!hasApiKey(primaryProvider)) {
-      const err = new Error(`Primary provider ${primaryProvider} is missing its API key.`);
-      err.category = 'Authentication';
-      throw err;
-    }
-    const result = await callProvider(primaryProvider);
-    return { ...result, provider: primaryProvider };
-  } catch (primaryError) {
-    const category = primaryError.category || 'Other Upstream Error';
-    console.warn(`[Orchestrator] Primary provider (${primaryProvider}) failed. Category: ${category}. Error: ${primaryError.message}`);
-    errors.push({ provider: primaryProvider, error: primaryError });
   }
 
-  // 2. Try secondary provider
-  if (hasApiKey(secondaryProvider)) {
-    try {
-      console.warn(`[Orchestrator] Attempting fallback to secondary provider: ${secondaryProvider}`);
-      const result = await callProvider(secondaryProvider);
-      return { ...result, provider: secondaryProvider };
-    } catch (secondaryError) {
-      const secCategory = secondaryError.category || 'Other Upstream Error';
-      console.warn(`[Orchestrator] Secondary provider (${secondaryProvider}) also failed. Category: ${secCategory}. Error: ${secondaryError.message}`);
-      errors.push({ provider: secondaryProvider, error: secondaryError });
-    }
-  } else {
-    console.warn(`[Orchestrator] Skipping secondary provider (${secondaryProvider}): no API key configured.`);
-  }
-
-  // 3. Try tertiary provider (DeepSeek)
-  if (hasApiKey(tertiaryProvider)) {
-    try {
-      console.warn(`[Orchestrator] Attempting fallback to tertiary provider: ${tertiaryProvider}`);
-      const result = await callProvider(tertiaryProvider);
-      return { ...result, provider: tertiaryProvider };
-    } catch (tertiaryError) {
-      const terCategory = tertiaryError.category || 'Other Upstream Error';
-      console.error(`[Orchestrator] Tertiary provider (${tertiaryProvider}) also failed. Category: ${terCategory}. Error: ${tertiaryError.message}`);
-      errors.push({ provider: tertiaryProvider, error: tertiaryError });
-    }
-  } else {
-    console.warn(`[Orchestrator] Skipping tertiary provider (${tertiaryProvider}): no API key configured.`);
-  }
-
-  // All providers failed
-  const errorSummary = errors.map(e => `${e.provider}: ${e.error.message}`).join('; ');
+  // All providers in execution chain failed
+  const errorSummary = errors.map(e => `${e.provider} (${e.source}): ${e.error.message}`).join('; ');
   throw new Error(`All LLM providers failed. ${errorSummary}`);
 }
-

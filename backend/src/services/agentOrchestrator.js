@@ -6,13 +6,23 @@ import { buildDeterministicFallback } from '../providers/geminiProvider.js';
 import { isLogStructured, redactSecrets } from '../utils/logParser.js';
 import { planCapabilities } from './capabilityPlanner.js';
 
-export function redactSensitiveData(text) {
+export function redactSensitiveData(text, userCredentials = {}) {
   if (typeof text !== 'string') return text;
   let redacted = text;
+
+  // Redact user-supplied BYOK keys if present in text
+  if (userCredentials && typeof userCredentials === 'object') {
+    for (const keyVal of Object.values(userCredentials)) {
+      if (typeof keyVal === 'string' && keyVal.trim().length > 5) {
+        redacted = redacted.split(keyVal.trim()).join('[REDACTED_USER_KEY]');
+      }
+    }
+  }
   
   // Independent safety layer for secrets that might be mid-line or multiple per line
   const globalSecretRegex = /\b([a-zA-Z0-9_\-]*?(?:key|secret|password|token)[a-zA-Z0-9_\-]*?\s*[:=]\s*)(["']?)([^\r\n"'\s]{10,})\2/gi;
   redacted = redacted.replace(globalSecretRegex, (match, keyAndEq, quote, secretValue) => {
+    if (secretValue.includes('[REDACTED_USER_KEY]')) return match;
     return keyAndEq + quote + '[REDACTED]' + quote;
   });
 
@@ -175,7 +185,18 @@ function routeRequest(query, debuggingMatches = []) {
 }
 
 
-export async function runAgentOrchestrator(message, signal) {
+export async function runAgentOrchestrator(message, optionsOrSignal) {
+  let signal = undefined;
+  let userCredentials = {};
+  if (optionsOrSignal && typeof optionsOrSignal === 'object') {
+    if (optionsOrSignal.aborted !== undefined || typeof optionsOrSignal.addEventListener === 'function') {
+      signal = optionsOrSignal;
+    } else {
+      signal = optionsOrSignal.signal;
+      userCredentials = optionsOrSignal.userCredentials || {};
+    }
+  }
+
   if (!message || typeof message !== 'string' || !message.trim()) {
     const err = new Error('Message is required.');
     err.status = 400;
@@ -270,7 +291,8 @@ export async function runAgentOrchestrator(message, signal) {
       const result = await generateResponse({
         messages: sessionMessages,
         systemPrompt: fullSystemPrompt,
-        tools: []
+        tools: [],
+        userCredentials
       });
       tLlmTotalMs += Date.now() - tLlmStart;
       finalAnswer = result.text;
@@ -307,7 +329,8 @@ export async function runAgentOrchestrator(message, signal) {
         const result = await generateResponse({
           messages: sessionMessages,
           systemPrompt: fullSystemPrompt,
-          tools: mcpTools
+          tools: mcpTools,
+          userCredentials
         });
         tLlmTotalMs += Date.now() - tLlmStart;
 
@@ -499,7 +522,7 @@ export async function runAgentOrchestrator(message, signal) {
   }
 
   // Redact sensitive data globally
-  finalAnswer = redactSensitiveData(finalAnswer);
+  finalAnswer = redactSensitiveData(finalAnswer, userCredentials);
   
   const totalMs = Date.now() - startTime;
   const outcomeSummary = responseProvider === 'fallback' 

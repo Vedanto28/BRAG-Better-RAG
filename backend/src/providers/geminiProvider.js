@@ -53,7 +53,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal }) {
+export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal, apiKey: overrideKey }) {
   // TEST INJECTION POINT: Only reachable when TEST_GEMINI_FAIL_ALL env var is set.
   // This is deliberately used by testResiliency.js and testOrchestratorFailures.js.
   // If this fires outside a test context, it indicates an environment misconfiguration.
@@ -65,7 +65,7 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     throw err;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = overrideKey || process.env.GEMINI_API_KEY;
   if (!apiKey) {
     const err = new Error('GEMINI_API_KEY is not set.');
     err.category = 'Authentication';

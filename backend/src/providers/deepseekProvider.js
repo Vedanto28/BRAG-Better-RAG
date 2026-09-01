@@ -8,7 +8,7 @@
  * Reads from env: DEEPSEEK_API_KEY, DEEPSEEK_MODEL (defaults to "deepseek-chat").
  */
 
-export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal }) {
+export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal, apiKey: overrideKey }) {
   // TEST INJECTION POINT: Only reachable when TEST_DEEPSEEK_FAIL_ALL env var is set.
   // Used by test suites to simulate DeepSeek failures. Must not fire in production.
   if (process.env.TEST_DEEPSEEK_FAIL_ALL === 'true') {
@@ -19,7 +19,7 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     throw err;
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP;
+  const apiKey = overrideKey || process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP;
   if (!apiKey) {
     const err = new Error('DEEPSEEK_API_KEY or DEEPSEEK_MCP is not set.');
     err.category = 'Authentication';

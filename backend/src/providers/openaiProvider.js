@@ -1,4 +1,4 @@
-export async function generateResponse({ messages, systemPrompt, tools, maxTokens }) {
+export async function generateResponse({ messages, systemPrompt, tools, maxTokens, signal, apiKey: overrideKey, baseUrl: overrideUrl, model: overrideModel }) {
   // TEST INJECTION POINT: Only reachable when TEST_OPENAI_FAIL_ALL env var is set.
   // Used by testResiliency.js and testOrchestratorFailures.js to simulate OpenAI quota errors.
   // If this fires outside a test context, it indicates an environment misconfiguration.
@@ -10,12 +10,15 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     throw err;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = overrideKey || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     const err = new Error('OPENAI_API_KEY is not set.');
     err.category = 'Authentication';
     throw err;
   }
+
+  const targetUrl = (overrideUrl || 'https://api.openai.com/v1').replace(/\/$/, '') + '/chat/completions';
+  const targetModel = overrideModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
   const formattedMessages = [
     { role: 'system', content: systemPrompt },
@@ -59,19 +62,22 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
   })) : undefined;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const fetchOptions = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: targetModel,
         messages: formattedMessages,
         tools: openaiTools,
         max_tokens: maxTokens
       })
-    });
+    };
+    if (signal) fetchOptions.signal = signal;
+
+    const res = await fetch(targetUrl, fetchOptions);
 
     if (!res.ok) {
       const errorText = await res.text().catch(() => '');
