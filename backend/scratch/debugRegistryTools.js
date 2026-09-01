@@ -19,7 +19,7 @@ import mcpRegistry from '../src/services/mcpRegistry.js';
 
 async function run() {
   await mcpRegistry.resetAll();
-  const tools = await mcpRegistry.getToolsForMode("repository_investigation", "search database config in remote prs");
+  const { tools } = await mcpRegistry.getToolsForMode("repository_investigation", "search database config in remote prs");
   console.log("Registered tools count:", tools.length);
   console.log("Registered tools:", tools.map(t => t.name));
 }

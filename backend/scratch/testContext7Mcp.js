@@ -117,7 +117,7 @@ async function runTests() {
 
   // Fetch tools for mode that fits all of them
   const query = "Next.js query requiring git, browser, and docs evidence";
-  const toolsResolved = await mcpRegistry.getToolsForMode("repository_investigation", query);
+  const { tools: toolsResolved } = await mcpRegistry.getToolsForMode("repository_investigation", query);
   
   const toolNames = toolsResolved.map(t => t.name);
   console.log("Resolved tools in registry:", toolNames);

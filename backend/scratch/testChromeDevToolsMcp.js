@@ -91,7 +91,7 @@ async function runTests() {
     EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = true;
     await mcpRegistry.resetAll();
 
-    const stubTools = await mcpRegistry.getToolsForMode("repository_investigation");
+    const { tools: stubTools } = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(stubTools.some(t => t.name === "navigate_page"), "Stub exposes navigate_page when mock enabled");
     assert(stubTools.some(t => t.name === "list_console_messages"), "Stub exposes list_console_messages when mock enabled");
 

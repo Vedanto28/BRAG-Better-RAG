@@ -68,20 +68,20 @@ async function runTests() {
     process.env.MOCK_EXTERNAL_MCP = 'false';
     EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = false;
     await mcpRegistry.resetAll();
-    let toolsRepoDisabled = await mcpRegistry.getToolsForMode("repository_investigation");
+    let { tools: toolsRepoDisabled } = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(!toolsRepoDisabled.some(t => t.name === "searchPullRequests"), "When MOCK_EXTERNAL_MCP=false, searchPullRequests is not exposed");
 
     process.env.MOCK_EXTERNAL_MCP = 'true';
     EXTERNAL_MCP_CONFIG.MOCK_EXTERNAL_MCP = true;
     await mcpRegistry.resetAll();
-    let toolsRepoEnabled = await mcpRegistry.getToolsForMode("repository_investigation");
+    let { tools: toolsRepoEnabled } = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(toolsRepoEnabled.some(t => t.name === "searchPullRequests"), "When MOCK_EXTERNAL_MCP=true, searchPullRequests is exposed in repository_investigation");
     assert(toolsRepoEnabled.some(t => t.name === "getPullRequestDetails"), "When MOCK_EXTERNAL_MCP=true, getPullRequestDetails is exposed in repository_investigation");
 
-    let toolsChangeEnabled = await mcpRegistry.getToolsForMode("change_investigation");
+    let { tools: toolsChangeEnabled } = await mcpRegistry.getToolsForMode("change_investigation");
     assert(toolsChangeEnabled.some(t => t.name === "searchPullRequests"), "When MOCK_EXTERNAL_MCP=true, searchPullRequests is exposed in change_investigation");
 
-    let toolsUtilityEnabled = await mcpRegistry.getToolsForMode("utility_tool");
+    let { tools: toolsUtilityEnabled } = await mcpRegistry.getToolsForMode("utility_tool");
     assert(toolsUtilityEnabled.some(t => t.name === "getCurrentDateTime"), "utility_tool mode exposes datetime");
     assert(toolsUtilityEnabled.some(t => t.name === "calculator"), "utility_tool mode exposes calculator");
     assert(!toolsUtilityEnabled.some(t => t.name === "searchPullRequests"), "utility_tool mode never exposes external tools");
@@ -111,7 +111,7 @@ async function runTests() {
     };
     mcpRegistry.registerProvider(brokenProvider);
 
-    let toolsWithBroken = await mcpRegistry.getToolsForMode("repository_investigation");
+    let { tools: toolsWithBroken } = await mcpRegistry.getToolsForMode("repository_investigation");
     assert(!toolsWithBroken.some(t => t.name === "brokenTool"), "Broken provider throwing during isAvailable() is ignored cleanly (fail closed)");
     assert(toolsWithBroken.some(t => t.name === "readFile"), "Internal tools still load normally when another provider fails");
 
@@ -164,7 +164,7 @@ async function runTests() {
 
     let coexistencePassed = false;
     try {
-      const tools = await mcpRegistry.getToolsForMode("repository_investigation");
+      const { tools } = await mcpRegistry.getToolsForMode("repository_investigation");
       assert(tools.some(t => t.name === "navigate_page"), "Coexistence exposes navigate_page");
       assert(tools.some(t => t.name === "list_commits"), "Coexistence exposes list_commits");
       coexistencePassed = true;

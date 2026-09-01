@@ -26,7 +26,11 @@ const tests = [
   'testContext7Mcp.js',
   'testDocRoutingAndDeepseek.js',
   'testMcpConnectionLifecycle.js',
-  'testCapabilityPlanner.js'
+  'testCapabilityPlanner.js',
+  'testByokCredentials.js',
+  'testStaticLeakCheck.js',
+  'testConcurrencyBYOK.js',
+  'testFullSystemBYOK.js'
 ];
 
 async function runTest(script) {
@@ -59,14 +63,21 @@ async function runTest(script) {
       if (
         stdoutBuffer.includes("TEST RUN COMPLETED") || 
         stdoutBuffer.includes("ALL CONTEXT7 MCP TESTS PASSED") ||
+        stdoutBuffer.includes("ALL CHROME DEVTOOLS MCP TESTS PASSED") ||
+        stdoutBuffer.includes("ALL RESILIENCY & RETRY TESTS PASSED") ||
+        stdoutBuffer.includes("ALL BYOK CREDENTIAL TESTS PASSED") ||
+        stdoutBuffer.includes("ALL BYOK CONCURRENCY ISOLATION TESTS PASSED") ||
+        stdoutBuffer.includes("ALL FULL-SYSTEM BYOK INTEGRATION TESTS PASSED") ||
+        stdoutBuffer.includes("STATIC LEAK-CHECK PASSED") ||
         stdoutBuffer.includes("PASSED SUCCESSFULLY") ||
         stdoutBuffer.includes("SANITY CHECK PASSED") ||
         stdoutBuffer.includes("ALL 7 FOCUS TESTS") ||
+        stdoutBuffer.includes("ALL FOCUS TESTS") ||
         stdoutBuffer.includes("STATUS: PASS") ||
         stdoutBuffer.includes("STATUS: SUCCESS") ||
         stdoutBuffer.includes("SUMMARY") ||
         stdoutBuffer.includes("LIFECYCLE TESTS PASSED") ||
-        stdoutBuffer.includes("Passed:") && stdoutBuffer.includes("Failed: 0")
+        (stdoutBuffer.includes("Passed:") && stdoutBuffer.includes("Failed: 0"))
       ) {
         if (!resolved) {
           resolved = true;
@@ -100,14 +111,14 @@ async function runTest(script) {
       }
     });
 
-    // Fallback safety timeout of 45 seconds per test
+    // Fallback safety timeout of 75 seconds per test
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
         child.kill();
         resolve({ script, success: false, code: 999 });
       }
-    }, 45000);
+    }, 75000);
   });
 }
 

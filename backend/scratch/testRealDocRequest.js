@@ -28,7 +28,7 @@ async function run() {
   const isAvail = await context7McpProvider.isAvailable();
   console.log("context7McpProvider.isAvailable():", isAvail);
 
-  const tools = await mcpRegistry.getToolsForMode("documentation_lookup", "How does Next.js App Router handle nested layouts? Use official documentation.");
+  const { tools } = await mcpRegistry.getToolsForMode("documentation_lookup", "How does Next.js App Router handle nested layouts? Use official documentation.");
   console.log("Registered tools for documentation_lookup:", tools.map(t => t.name));
 
   const query = "How does Next.js App Router handle nested layouts? Use official documentation.";
