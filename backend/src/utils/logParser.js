@@ -49,6 +49,7 @@ export function redactSecrets(text) {
   if (!text) return '';
   const lines = text.split('\n');
   const redactedLines = lines.map(line => {
+    if (line.includes('[REDACTED_USER_KEY]')) return line;
     if (secretRegex.test(line)) {
       return line.replace(secretRegex, '$1[REDACTED]$3');
     }

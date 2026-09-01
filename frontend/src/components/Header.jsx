@@ -1,4 +1,4 @@
-export default function Header() {
+export default function Header({ onOpenByok }) {
   return (
     <header className="sticky top-0 z-30 border-b border-gray-200/80 bg-white/90 backdrop-blur-xl dark:border-gray-800/80 dark:bg-gray-950/85">
       <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-4 sm:px-6 lg:px-8">
@@ -17,6 +17,16 @@ export default function Header() {
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Better RAG Assistant
           </p>
+        </div>
+        <div>
+          <button
+            type="button"
+            onClick={onOpenByok}
+            className="flex items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            <i className="bi bi-key-fill text-teal-500"></i>
+            <span>API Keys</span>
+          </button>
         </div>
       </div>
     </header>
