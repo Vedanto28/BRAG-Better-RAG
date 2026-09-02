@@ -1,0 +1,211 @@
+[
+  {
+    "id": "rest-001",
+    "category": "backend-fundamentals",
+    "title": "HTTP 413 Payload Too Large / Request Entity Too Large",
+    "symptoms": ["413 Payload Too Large", "request entity too large", "PayloadTooLargeError: request entity too large"],
+    "commonCauses": ["Express body-parser default limit (100kb) exceeded by large JSON or base64 uploads", "Reverse proxy (NGINX client_max_body_size) rejecting request payload"],
+    "investigationSteps": ["Inspect Content-Length header of failing request", "Check express.json() and express.urlencoded() limit options in server.js", "Verify NGINX or API Gateway payload limit configurations"],
+    "typicalEvidence": "Express error stack showing PayloadTooLargeError from body-parser; Content-Length header exceeding 102400 bytes.",
+    "typicalFix": "Increase body parser limit: express.json({ limit: '10mb' }) and align reverse proxy client_max_body_size 10M;",
+    "codeSearchHints": ["express.json", "body-parser", "limit", "client_max_body_size"]
+  },
+  {
+    "id": "rest-002",
+    "category": "backend-fundamentals",
+    "title": "Non-Idempotent Retry Storms & Duplicate Side Effects",
+    "symptoms": ["Duplicate payment charges", "Multiple database records created from single user click", "Unique constraint violation on retried POST"],
+    "commonCauses": ["Client or HTTP library automatic retries on network timeout without Idempotency-Key", "Missing distributed lock or database unique constraint on transaction tokens"],
+    "investigationSteps": ["Check client request retry policies (e.g. axios-retry or fetch timeout handlers)", "Inspect access logs for repeated POST requests with identical body within short intervals", "Verify idempotency key validation and caching middleware"],
+    "typicalEvidence": "Two or more POST requests with identical payload timestamps within 1000ms; duplicate records with sequential timestamps in database.",
+    "typicalFix": "Implement Idempotency-Key header validation storing request hashes in Redis for 24h with atomic SET NX EX before executing business logic.",
+    "codeSearchHints": ["Idempotency-Key", "idempotent", "SET NX", "unique constraint"]
+  },
+  {
+    "id": "auth-005",
+    "category": "authentication-security",
+    "title": "JWT Token Signature Verification Failure / Secret Mismatch",
+    "symptoms": ["JsonWebTokenError: invalid signature", "jwt signature is invalid", "401 Unauthorized token verification failed"],
+    "commonCauses": ["JWT_SECRET environment variable mismatch between signing service and verifying service", "Public/Private key algorithm mismatch (RS256 vs HS256)", "Trailing whitespace or quote corruption in .env string"],
+    "investigationSteps": ["Check JWT_SECRET or JWKS_URI environment values across services", "Decode token on jwt.io and verify 'alg' header field", "Ensure token is not corrupted by URL-encoding or header truncation"],
+    "typicalEvidence": "Error in auth middleware: JsonWebTokenError: invalid signature at jwt.verify(); token header indicates algorithm HS256 but verification expecting RS256.",
+    "typicalFix": "Synchronize JWT_SECRET across environments; strip quotes/newlines from process.env; explicitly specify algorithms: ['HS256'] in jwt.verify(token, secret, { algorithms: ['HS256'] }).",
+    "codeSearchHints": ["jwt.verify", "JWT_SECRET", "jsonwebtoken", "algorithms"]
+  },
+  {
+    "id": "auth-006",
+    "category": "authentication-security",
+    "title": "CORS Preflight (OPTIONS) 401/403 Blocking Authenticated Requests",
+    "symptoms": ["Cross-Origin Request Blocked: Preflight response is not successful", "Response to preflight request doesn't pass access control check: It does not have HTTP ok status (401)", "No 'Access-Control-Allow-Origin' header is present"],
+    "commonCauses": ["Authentication middleware registered before CORS middleware in Express app pipeline", "Auth middleware trying to validate token on HTTP OPTIONS preflight request (which carries no credentials)"],
+    "investigationSteps": ["Inspect Express middleware registration order in app.js/server.js", "Check if cors() middleware is placed before authRouter and protected route handlers", "Verify network tab for failing OPTIONS preflight response code"],
+    "typicalEvidence": "Browser console showing CORS preflight failure; server logs showing 401 on OPTIONS /api/data before GET/POST is ever handled.",
+    "typicalFix": "Place app.use(cors()) at the very top of Express middleware pipeline before any authentication or route handlers; ensure cors middleware responds 204 to OPTIONS.",
+    "codeSearchHints": ["app.use(cors", "cors()", "OPTIONS", "authMiddleware"]
+  },
+  {
+    "id": "pg-001",
+    "category": "database-postgresql",
+    "title": "PostgreSQL Connection Pool Exhaustion & Client Timeout",
+    "symptoms": ["error: timeout exceeded when trying to connect", "remaining connection slots are reserved for non-replication superuser connections", "pool.connect() timeout after 10000ms"],
+    "commonCauses": ["Database client acquired from pool (pool.connect()) without calling client.release() in a finally block", "Unindexed slow queries tying up pool connections under concurrent traffic", "Pool max size configured smaller than concurrent API worker count"],
+    "investigationSteps": ["Query SELECT count(*), state FROM pg_stat_activity GROUP BY state; in PostgreSQL", "Search codebase for pool.connect() and check for missing try/finally with client.release()", "Inspect pg_stat_activity for idle in transaction queries"],
+    "typicalEvidence": "pg_stat_activity showing max_connections reached with many connections in 'idle' or 'idle in transaction' state; pool.totalCount === pool.max and pool.idleCount === 0.",
+    "typicalFix": "Always wrap pool.connect() in try...finally { client.release(); }; prefer pool.query() for single statements; tune connection pool max and idleTimeoutMillis.",
+    "codeSearchHints": ["pool.connect", "client.release", "max_connections", "pg_stat_activity"]
+  },
+  {
+    "id": "pg-002",
+    "category": "database-postgresql",
+    "title": "PostgreSQL Transaction Deadlock Detected (40P01)",
+    "symptoms": ["error: deadlock detected", "DETAIL: Process 12345 waits for ShareLock on transaction 6789; Process 6789 waits for ExclusiveLock", "SQLSTATE 40P01"],
+    "commonCauses": ["Two concurrent transactions updating the same set of rows in reverse order", "Concurrent foreign key checks with cascading updates on parent/child tables", "Unindexed foreign key columns locking full parent tables during row deletions"],
+    "investigationSteps": ["Inspect PostgreSQL server log for DETAIL: process waiting for lock to identify competing queries", "Examine transaction ordering in application code modifying multiple related rows", "Verify all foreign key reference columns have supporting btree indexes"],
+    "typicalEvidence": "Postgres error 40P01: deadlock detected with query text showing concurrent UPDATE statements on shared primary keys in inverse sequence.",
+    "typicalFix": "Enforce strict, deterministic sorting order when locking or updating multiple rows (e.g. ORDER BY id ASC); ensure foreign keys have indexes; implement exponential backoff retry for deadlock errors.",
+    "codeSearchHints": ["deadlock detected", "40P01", "SELECT ... FOR UPDATE", "BEGIN...COMMIT"]
+  },
+  {
+    "id": "pg-003",
+    "category": "database-postgresql",
+    "title": "PostgreSQL DNS Resolution & SSL SNI Failure (ENOTFOUND / Servername)",
+    "symptoms": ["getaddrinfo ENOTFOUND *.aws.neon.tech", "SSL error: certificate verify failed / Hostname mismatch", "Connection terminated unexpectedly during SSL handshake"],
+    "commonCauses": ["Node.js default OS getaddrinfo failing to resolve dynamic cloud DNS subdomains on Windows/WSL", "Missing servername parameter in pg TLS configuration for multi-tenant SNI routing"],
+    "investigationSteps": ["Test hostname resolution using dns.promises.Resolver with 8.8.8.8 and 1.1.1.1", "Inspect pg.Pool ssl configuration for servername matching connection host", "Verify SSL connection string parameters (sslmode=require)"],
+    "typicalEvidence": "Error stack with code ENOTFOUND or self-signed certificate in certificate chain; connection succeeds when custom DNS resolver or IP with SNI servername is provided.",
+    "typicalFix": "Configure pg.Pool with dns.promises.Resolver and pass ssl: { rejectUnauthorized: false, servername: originalHostname } when connecting to cloud Postgres providers.",
+    "codeSearchHints": ["sslmode=require", "servername", "dns.promises.Resolver", "rejectUnauthorized"]
+  },
+  {
+    "id": "redis-001",
+    "category": "database-redis",
+    "title": "Redis Connection Refused / Command Timeout / ECONNREFUSED",
+    "symptoms": ["Error: connect ECONNREFUSED 127.0.0.1:6379", "Command timed out after 5000ms", "Redis connection is not open (enableOfflineQueue is false)"],
+    "commonCauses": ["Redis server not running or wrong REDIS_URL port/host in .env", "Redis command backlog blocked by single-threaded long-running command like KEYS * or HGETALL on huge key", "Network firewall or security group blocking port 6379"],
+    "investigationSteps": ["Run redis-cli ping or inspect container status with docker ps", "Check Redis SLOWLOG GET 10 to see if blocking commands (e.g. KEYS) were executed", "Verify REDIS_URL environment variable and ioredis retryStrategy configuration"],
+    "typicalEvidence": "ioredis or node-redis emitting 'error' event with ECONNREFUSED; Redis server log showing high CPU or OOM condition.",
+    "typicalFix": "Verify REDIS_URL; replace KEYS * with SCAN iteration; configure robust reconnectOnError and retryStrategy with exponential backoff in Redis client setup.",
+    "codeSearchHints": ["redis.createClient", "ioredis", "retryStrategy", "SLOWLOG"]
+  },
+  {
+    "id": "redis-002",
+    "category": "database-redis",
+    "title": "Cache Stampede / Thundering Herd on TTL Expiration",
+    "symptoms": ["Sudden spike in database CPU to 100% on cache key expiration", "Spike in API latency for popular endpoint every hour", "Cascading timeouts across backend microservices"],
+    "commonCauses": ["High-traffic cached key expires simultaneously, causing hundreds of concurrent requests to hit the primary database at once", "Missing probabilistic early expiration (XFetch) or distributed lock on cache miss"],
+    "investigationSteps": ["Inspect database query rate graphs during cache expiration windows", "Check TTL configurations for synchronized expiration times", "Analyze cache miss handling in service caching layer"],
+    "typicalEvidence": "Dozens of identical database queries executed simultaneously for the same resource ID immediately after cache TTL expires.",
+    "typicalFix": "Implement probabilistic early expiration (jitter TTL: base_ttl + random_offset) or use single-flight mutex / Redis distributed lock so only one worker queries DB while others await cached result.",
+    "codeSearchHints": ["cache.get", "ttl", "singleflight", "distributed lock"]
+  },
+  {
+    "id": "mongo-001",
+    "category": "database-mongodb",
+    "title": "MongoDB Write Concern Timeout / Buffering Timed Out",
+    "symptoms": ["MongooseError: Operation `users.insertOne()` buffering timed out after 10000ms", "MongoServerError: waiting for replication timed out", "wtimeout exceeded"],
+    "commonCauses": ["Mongoose query executed before mongoose.connect() successfully connected", "Replica set secondary nodes lagging or unreachable with w: 'majority' write concern", "Network partition between app server and primary MongoDB node"],
+    "investigationSteps": ["Verify mongoose.connection.readyState (0=disconnected, 1=connected, 2=connecting)", "Check replica set status with rs.status() in mongosh", "Inspect connection string replicaSet and serverSelectionTimeoutMS parameters"],
+    "typicalEvidence": "MongooseError showing buffering timed out; server logs show database operations attempted prior to 'connected' event emission.",
+    "typicalFix": "Await mongoose.connect() before starting Express app.listen(); set serverSelectionTimeoutMS: 5000 and adjust write concern timeout wtimeoutMS.",
+    "codeSearchHints": ["mongoose.connect", "serverSelectionTimeoutMS", "readyState", "buffering timed out"]
+  },
+  {
+    "id": "node-001",
+    "category": "node-runtime",
+    "title": "Node.js Event Loop Lag & CPU-Bound Blocking Operations",
+    "symptoms": ["High API latency under load despite low database latency", "Heartbeat/Health check timeouts during request processing", "WebSocket ping timeouts"],
+    "commonCauses": ["Heavy synchronous operations running on the main event loop (e.g. JSON.parse on 50MB string, crypto sync hashing, synchronous fs methods, nested regex ReDoS)", "Blocking loops in data transformation without setImmediate yielding"],
+    "investigationSteps": ["Measure event loop lag using perf_hooks or event-loop-lag package", "Inspect CPU profiling flame graphs using Chrome DevTools or Clinic.js", "Search codebase for synchronous methods (fs.readFileSync, crypto.pbkdf2Sync)"],
+    "typicalEvidence": "Flame graph showing 100% CPU in single JS function for hundreds of milliseconds; event loop delay exceeding 100ms.",
+    "typicalFix": "Offload CPU-bound tasks to Worker Threads (worker_threads), use asynchronous stream processing for large JSON/files, optimize vulnerable regular expressions.",
+    "codeSearchHints": ["worker_threads", "fs.readFileSync", "JSON.parse", "crypto.pbkdf2Sync"]
+  },
+  {
+    "id": "node-002",
+    "category": "node-runtime",
+    "title": "Process Heap Out of Memory (OOM) & Garbage Collection Thrashing",
+    "symptoms": ["FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory", "Container killed with Exit Code 137 (OOMKilled)", "Process memory continuously growing without flattening (memory leak)"],
+    "commonCauses": ["Unbounded in-memory arrays or caches without LRU eviction", "Global event emitter listeners attached repeatedly per request without removeListener", "Retaining large payload buffers in closures"],
+    "investigationSteps": ["Take heap snapshots using Chrome DevTools or v8.getHeapSnapshot() before and after load test", "Inspect object retention tree for growing arrays, Sets, or EventEmitter._events", "Monitor process.memoryUsage().heapUsed over time"],
+    "typicalEvidence": "Heap dump showing millions of retained objects in global cache or uncollected closure scopes; process RSS exceeding container memory limit.",
+    "typicalFix": "Use lru-cache with maxSize / ttl limits; remove event listeners when request ends or use AbortSignal; stream large files rather than buffering in memory; increase --max-old-space-size if needed.",
+    "codeSearchHints": ["heap out of memory", "EventEmitter", "lru-cache", "max-old-space-size"]
+  },
+  {
+    "id": "node-003",
+    "category": "node-runtime",
+    "title": "Port Conflict / EADDRINUSE Error on Server Startup",
+    "symptoms": ["Error: listen EADDRINUSE: address already in use :::5000", "EADDRINUSE 0.0.0.0:3000", "Failed to bind to port"],
+    "commonCauses": ["Previous instance of Node backend did not terminate cleanly and is still holding the socket", "Another background daemon or service running on the same port", "Multiple workers attempting to call server.listen() on the same port without cluster sharing"],
+    "investigationSteps": ["Check open sockets on target port using netstat -ano | findstr :PORT (Windows) or lsof -i :PORT (Linux)", "Identify PID holding the port and check task manager / ps", "Verify port environment variable resolution across test and dev scripts"],
+    "typicalEvidence": "Server crash during startup with code EADDRINUSE and port number in syscall.",
+    "typicalFix": "Kill zombie process holding the port (taskkill /PID <pid> /F or kill -9 <pid>); use dynamic port allocation or PORT env fallback (process.env.PORT || 5000); handle process SIGINT/SIGTERM for graceful shutdown.",
+    "codeSearchHints": ["EADDRINUSE", "server.listen", "PORT", "SIGINT"]
+  },
+  {
+    "id": "async-001",
+    "category": "async-concurrency",
+    "title": "Unhandled Promise Rejections in Background Tasks & Process Crash",
+    "symptoms": ["UnhandledPromiseRejectionWarning: Unhandled promise rejection", "Node process abruptly exiting with code 1 without error logs", "Uncaught exception inside async function"],
+    "commonCauses": ["Async function called without await or .catch() in background task / fire-and-forget logic", "Error thrown inside setTimeout, setInterval, or event listener callback without try/catch"],
+    "investigationSteps": ["Add process.on('unhandledRejection', (reason, promise) => { ... }) with detailed logging", "Audit codebase for unawaited async function calls", "Inspect async event listeners and message queue consumers"],
+    "typicalEvidence": "Stack trace printed by unhandledRejection handler showing async rejection originating from background logging or metrics emission.",
+    "typicalFix": "Always attach .catch(err => log(err)) to fire-and-forget async promises; register top-level process.on('unhandledRejection') and process.on('uncaughtException') handlers.",
+    "codeSearchHints": ["unhandledRejection", "uncaughtException", "new Promise", ".catch("]
+  },
+  {
+    "id": "async-002",
+    "category": "async-concurrency",
+    "title": "Concurrent Async State Mutation Race Conditions",
+    "symptoms": ["Inventory count negative despite check", "Account balance overwritten by concurrent transaction", "Lost updates in read-modify-write workflows"],
+    "commonCauses": ["Non-atomic read-then-write operations across async intervals (e.g. const val = await get(); await set(val + 1))", "Shared in-memory state modified concurrently without synchronization"],
+    "investigationSteps": ["Identify shared mutable state in service layer or database entities", "Inspect concurrent request patterns under simulated parallel load", "Check database queries for atomic increments vs application-level updates"],
+    "typicalEvidence": "Under 10 concurrent requests updating count, final count increments by only 4 instead of 10 due to interleaved read-modify-write steps.",
+    "typicalFix": "Use database atomic updates (UPDATE account SET balance = balance - amount WHERE balance >= amount) or Redis atomic INCRBY / Lua scripts; use mutexes for in-memory shared state.",
+    "codeSearchHints": ["atomic", "INCRBY", "UPDATE ... SET", "mutex"]
+  },
+  {
+    "id": "net-001",
+    "category": "networking-microservices",
+    "title": "ECONNRESET / Socket Hang Up on Upstream HTTP Service",
+    "symptoms": ["Error: socket hang up", "FetchError: request to ... failed, reason: read ECONNRESET", "502 Bad Gateway / 504 Gateway Timeout"],
+    "commonCauses": ["Upstream server closed keep-alive socket while client was sending request (race condition on idle socket timeout)", "Upstream service crashed mid-request due to unhandled error or OOM", "Intermediate proxy / load balancer idle connection timeout shorter than client keep-alive timeout"],
+    "investigationSteps": ["Check upstream server error logs and crash dumps around timestamp", "Inspect HTTP agent keepAlive and timeout configurations", "Compare client keepAliveTimeout vs server keepAliveTimeout (server timeout should exceed client timeout)"],
+    "typicalEvidence": "Client HTTP error with code ECONNRESET or socket hang up occurring after period of inactivity or high load.",
+    "typicalFix": "Configure custom http.Agent with keepAlive: true and set client timeout shorter than upstream timeout; implement retry with exponential backoff on idempotent requests.",
+    "codeSearchHints": ["http.Agent", "keepAlive", "ECONNRESET", "socket hang up"]
+  },
+  {
+    "id": "docker-001",
+    "category": "docker-containers",
+    "title": "Container Exit Code 137 (OOMKilled) & Memory Limit Exceeded",
+    "symptoms": ["Container exited with code 137", "dmesg shows: Memory cgroup out of memory: Kill process (node)", "Kubernetes pod terminating with reason OOMKilled"],
+    "commonCauses": ["Docker container memory limit (e.g. --memory=512m) exceeded by Node.js process and native allocations", "Node.js default heap limit not tuned for container cgroups, causing V8 to grow past container limit before triggering GC"],
+    "investigationSteps": ["Inspect container exit code via docker inspect <container_id> --format='{{.State.ExitCode}}'", "Check kernel logs via dmesg -T | grep -i oom", "Verify memory limits in docker-compose.yml or k8s deployment spec"],
+    "typicalEvidence": "docker inspect showing ExitCode: 137 and OOMKilled: true; dmesg log showing oom-killer invoked on node process.",
+    "typicalFix": "Set Node.js max-old-space-size to ~75% of container memory limit (e.g. --max-old-space-size=384 for 512MB container) to force V8 GC before OS kernel OOM kill.",
+    "codeSearchHints": ["OOMKilled", "max-old-space-size", "docker-compose", "memory limit"]
+  },
+  {
+    "id": "docker-002",
+    "category": "docker-containers",
+    "title": "Docker Host Resolution Failure (Connecting to localhost inside Container)",
+    "symptoms": ["connect ECONNREFUSED 127.0.0.1:5432 inside Docker container", "getaddrinfo ENOTFOUND host.docker.internal", "Database unreachable from containerized backend"],
+    "commonCauses": ["Containerized application trying to connect to 'localhost' / '127.0.0.1' expecting to reach a service on host machine or another container", "Missing bridge network or incorrect service name in docker-compose"],
+    "investigationSteps": ["Inspect DB_HOST environment variable in container environment", "Check docker-compose service names and network definitions", "Test connectivity using docker exec -it <app> ping <db-service-name>"],
+    "typicalEvidence": "Connection refused when connecting to 127.0.0.1 from inside container; container cannot resolve localhost as the host machine.",
+    "typicalFix": "Use docker-compose service names as hostnames (e.g. postgres://user:pass@postgres_db:5432/db) or use host.docker.internal when connecting to host machine services.",
+    "codeSearchHints": ["host.docker.internal", "localhost", "docker-compose", "DB_HOST"]
+  },
+  {
+    "id": "ws-001",
+    "category": "websockets-realtime",
+    "title": "WebSocket Connection Drops & Heartbeat Timeout (Silent Disconnect)",
+    "symptoms": ["WebSocket is closed before the connection is established", "WebSocket connection to 'ws://...' failed", "Client stays connected in UI but receives no live events"],
+    "commonCauses": ["Missing application-level ping/pong heartbeat causing intermediate reverse proxies (e.g. NGINX, Cloudflare) to terminate idle connection after 60s", "Reverse proxy missing Upgrade and Connection headers for HTTP 101 switching protocols"],
+    "investigationSteps": ["Inspect NGINX proxy_set_header Upgrade $http_upgrade and proxy_set_header Connection 'upgrade'", "Check WebSocket server ping/pong interval configuration", "Monitor browser WebSocket onclose event code (1006 abnormal closure)"],
+    "typicalEvidence": "WebSocket connections systematically dropping after exactly 60 or 100 seconds of silence with close code 1006.",
+    "typicalFix": "Implement 30s ping/pong heartbeat in ws / socket.io server and client; configure proxy_read_timeout 3600s and proxy_set_header Upgrade $http_upgrade in NGINX.",
+    "codeSearchHints": ["ws.ping", "pingTimeout", "proxy_set_header Upgrade", "1006"]
+  }
+]
