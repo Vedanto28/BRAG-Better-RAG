@@ -14,9 +14,22 @@ frontend/node_modules
 frontend/dist
 backend/node_modules
 backend/dist
-*.local
+# Environment files
+.env
+.env.*
+!.env.example
 backend/.env
+backend/.env.*
+!backend/.env.example
 frontend/.env
+frontend/.env.*
+!frontend/.env.example
+*.local
+
+# Scratch and Cloned Repositories
+backend/scratch/cloned_repos/
+cloned_repos/
+coverage/
 
 # Editor directories and files
 .vscode/*

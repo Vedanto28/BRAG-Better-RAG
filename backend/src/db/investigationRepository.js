@@ -186,10 +186,25 @@ export async function recordChatInteraction({
     if (meta.inspectedPaths?.length > 0) {
       await saveEvidence({
         investigationId: activeInvId,
-        source: 'mcp',
-        content: 'Inspected file paths',
+        source: 'internal_mcp',
+        content: `Inspected ${meta.inspectedPaths.length} repository path(s)`,
         metadata: { paths: meta.inspectedPaths }
       });
+    }
+
+    if (Array.isArray(meta.externalEvidence)) {
+      for (const ev of meta.externalEvidence) {
+        const sourceTag = ev.source ? `${ev.source.toLowerCase().replace(/[^a-z0-9]/g, '_')}_mcp` : 'external_mcp';
+        await saveEvidence({
+          investigationId: activeInvId,
+          source: sourceTag,
+          content: ev.summary || `${ev.source || 'External'} MCP evidence gathered`,
+          metadata: {
+            tool: ev.tool,
+            payload: ev.payload
+          }
+        });
+      }
     }
 
     if (meta.debuggingMatches?.length > 0) {
@@ -204,7 +219,7 @@ export async function recordChatInteraction({
     if (meta.logEvidence && (meta.logEvidence.errorType || meta.logEvidence.framesReferenced?.length > 0)) {
       await saveEvidence({
         investigationId: activeInvId,
-        source: 'log',
+        source: 'log_mcp',
         content: `Error log: ${meta.logEvidence.errorType || 'Exception'}`,
         metadata: meta.logEvidence
       });

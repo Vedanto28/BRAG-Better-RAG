@@ -108,7 +108,8 @@ export class GitHubMcpProvider {
       "get_issue",
       "search_issues",
       "list_commits",
-      "get_pull_request_status"
+      "get_pull_request_status",
+      "get_file_contents"
     ];
   }
 
@@ -222,8 +223,9 @@ export class GitHubMcpProvider {
     console.log("[MCP] connect() called: github", new Date().toISOString(), "InstanceId:", this.instanceId);
 
     try {
+      const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
       this.transport = new StdioClientTransport({
-        command: "npx",
+        command,
         args: ["-y", "@modelcontextprotocol/server-github"],
         env: {
           ...process.env,
@@ -348,7 +350,10 @@ export class GitHubMcpProvider {
     if (toolName.includes("status")) evidenceType = "workflow_run";
 
     let summary = `GitHub tool ${toolName} query`;
-    if (toolName === "list_pull_requests") {
+    if (toolName === "get_file_contents") {
+      summary = `Read file "${args.path || 'unknown'}" from ${args.owner || repoInfo.owner}/${args.repo || repoInfo.repo}`;
+      evidenceType = "file_content";
+    } else if (toolName === "list_pull_requests") {
       summary = "Listed recent PRs";
     } else if (toolName === "get_pull_request") {
       summary = `Fetched details for PR #${args.prNumber || args.number || 'unknown'}`;

@@ -20,37 +20,38 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
   const targetUrl = (overrideUrl || 'https://api.openai.com/v1').replace(/\/$/, '') + '/chat/completions';
   const targetModel = overrideModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-  const formattedMessages = [
-    { role: 'system', content: systemPrompt },
-    ...messages.map(msg => {
-      if (msg.role === 'tool') {
-        return {
-          role: 'tool',
-          tool_call_id: msg.toolCallId,
-          name: msg.name,
-          content: msg.content
-        };
-      }
-      if (msg.toolCalls) {
-        return {
-          role: 'assistant',
-          content: msg.content || null,
-          tool_calls: msg.toolCalls.map(tc => ({
-            id: tc.id,
-            type: 'function',
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.args)
-            }
-          }))
-        };
-      }
-      return {
+  const formattedMessages = [];
+  if (systemPrompt && typeof systemPrompt === 'string' && systemPrompt.trim().length > 0) {
+    formattedMessages.push({ role: 'system', content: systemPrompt });
+  }
+  for (const msg of messages) {
+    if (msg.role === 'tool') {
+      formattedMessages.push({
+        role: 'tool',
+        tool_call_id: msg.toolCallId,
+        name: msg.name,
+        content: msg.content
+      });
+    } else if (msg.toolCalls) {
+      formattedMessages.push({
+        role: 'assistant',
+        content: msg.content || null,
+        tool_calls: msg.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function',
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.args)
+          }
+        }))
+      });
+    } else {
+      formattedMessages.push({
         role: msg.role,
         content: msg.content
-      };
-    })
-  ];
+      });
+    }
+  }
 
   const openaiTools = tools && tools.length > 0 ? tools.map(tool => ({
     type: 'function',

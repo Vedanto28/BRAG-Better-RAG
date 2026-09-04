@@ -177,9 +177,14 @@ export class Context7McpProvider {
     console.log("[MCP] connect() called: context7", new Date().toISOString(), "InstanceId:", this.instanceId, "connectionId:", this.connectionId);
 
     try {
+      const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
       this.transport = new StdioClientTransport({
-        command: "npx",
-        args: ["-y", "@upstash/context7-mcp", "--api-key", EXTERNAL_MCP_CONFIG.CONTEXT7_MCP_TOKEN]
+        command,
+        args: ["-y", "@upstash/context7-mcp"],
+        env: {
+          ...process.env,
+          CONTEXT7_API_KEY: EXTERNAL_MCP_CONFIG.CONTEXT7_MCP_TOKEN
+        }
       });
 
       this.client = new Client(

@@ -62,6 +62,19 @@ npm install
 npm run dev
 ```
 
+### 4. Running Regression Tests
+From the project root:
+```bash
+npm test
+```
+Or run individual phase regression suites:
+```bash
+npm run test:phase2   # Provider Router & BYOK Security
+npm run test:phase3   # Hybrid RAG 2.0 Retrieval
+npm run test:phase4   # Diagnostic Quality & Adaptive Length
+npm run test:phase5   # MCP Evidence Acquisition Layer
+```
+
 ---
 
 ## Token & Cost Controls (AI Configuration)

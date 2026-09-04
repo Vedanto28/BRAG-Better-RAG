@@ -62,6 +62,7 @@ async function testRetrievalQuality() {
   console.log('============================================================');
   console.log('ALL PHASE 3 RETRIEVAL QUALITY TESTS PASSED! (0 REAL LLM CALLS)');
   console.log('============================================================');
+  process.exit(0);
 }
 
 testRetrievalQuality().catch(err => {

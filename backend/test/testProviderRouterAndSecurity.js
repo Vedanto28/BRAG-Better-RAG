@@ -84,9 +84,10 @@ async function runRouterAndSecurityTests() {
   assert.strictEqual(maskKey('gsk_1234567890abcdef'), 'gsk••••••••cdef', 'Masked key format correct');
   console.log('✅ PASS: Key validation and masking rules verified.');
 
-  console.log('\n============================================================');
+  console.log('============================================================');
   console.log('ALL PHASE 2 UNIT TESTS PASSED SUCCESSFULLY! (0 REAL LLM CALLS)');
   console.log('============================================================');
+  process.exit(0);
 }
 
 runRouterAndSecurityTests().catch(err => {

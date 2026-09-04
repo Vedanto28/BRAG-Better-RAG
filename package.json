@@ -1,5 +1,11 @@
 {
-  "dependencies": {
-    "openai": "^6.45.0"
+  "name": "brag-root",
+  "private": true,
+  "scripts": {
+    "test": "npm test --prefix backend",
+    "test:phase2": "npm run test:phase2 --prefix backend",
+    "test:phase3": "npm run test:phase3 --prefix backend",
+    "test:phase4": "npm run test:phase4 --prefix backend",
+    "test:phase5": "npm run test:phase5 --prefix backend"
   }
 }

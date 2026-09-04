@@ -97,6 +97,7 @@ async function runDiagnosticQualityTests() {
   console.log('============================================================');
   console.log('ALL PHASE 4 DIAGNOSTIC QUALITY TESTS PASSED! (1 REAL LLM CALL)');
   console.log('============================================================');
+  process.exit(0);
 }
 
 runDiagnosticQualityTests().catch(err => {
