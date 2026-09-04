@@ -8,16 +8,18 @@
     "start": "node server.js",
     "dev": "node server.js",
     "ingest:rag": "node src/rag/ingest.js",
-    "test": "node test/testProviderRouterAndSecurity.js && node test/testHybridRagRetrieval.js && node test/testDiagnosticQualityAndAdaptiveLength.js && node test/testMcpEvidenceLayer.js",
+    "test": "node test/testProviderRouterAndSecurity.js && node test/testHybridRagRetrieval.js && node test/testDiagnosticQualityAndAdaptiveLength.js && node test/testMcpEvidenceLayer.js && node test/testAuthenticationAndOwnership.js",
     "test:phase2": "node test/testProviderRouterAndSecurity.js",
     "test:phase3": "node test/testHybridRagRetrieval.js",
     "test:phase4": "node test/testDiagnosticQualityAndAdaptiveLength.js",
-    "test:phase5": "node test/testMcpEvidenceLayer.js"
+    "test:phase5": "node test/testMcpEvidenceLayer.js",
+    "test:phase6": "node test/testAuthenticationAndOwnership.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^1.1.0",
+    "better-auth": "^1.7.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
