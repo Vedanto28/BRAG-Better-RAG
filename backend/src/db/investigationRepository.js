@@ -2,6 +2,7 @@ import { query } from './connection.js';
 
 /**
  * Ensures an investigation record exists or creates one.
+ * Enforces ownership: if investigationId belongs to another user, throws 403 Forbidden.
  * @param {string} [investigationId]
  * @param {string} [title]
  * @param {string} [userId]
@@ -10,9 +11,20 @@ import { query } from './connection.js';
 export async function findOrCreateInvestigation(investigationId, title = 'New Investigation', userId = null) {
   try {
     if (investigationId) {
-      const existing = await query('SELECT id FROM investigations WHERE id = $1', [investigationId]);
+      const existing = await query('SELECT id, user_id FROM investigations WHERE id = $1', [investigationId]);
       if (existing.rows?.length > 0) {
-        return existing.rows[0].id;
+        const inv = existing.rows[0];
+        // Enforce ownership if investigation is owned by another user
+        if (inv.user_id && userId && inv.user_id !== userId) {
+          const authErr = new Error('Forbidden: You do not have permission to access or modify this investigation.');
+          authErr.status = 403;
+          throw authErr;
+        }
+        // If investigation was previously unassigned and a user is now active, claim it
+        if (!inv.user_id && userId) {
+          await query('UPDATE investigations SET user_id = $1 WHERE id = $2', [userId, inv.id]);
+        }
+        return inv.id;
       }
     }
 
@@ -25,6 +37,9 @@ export async function findOrCreateInvestigation(investigationId, title = 'New In
 
     return res.rows[0]?.id;
   } catch (err) {
+    if (err.status === 403) {
+      throw err;
+    }
     console.warn('[Repository] Failed to findOrCreateInvestigation:', err.message);
     return investigationId || 'ephemeral-investigation';
   }
@@ -147,6 +162,7 @@ export async function saveUsageMetadata({
  * Persists an entire chat turn (User message, Assistant response, Evidence, Diagnostic findings, Usage metadata).
  * @param {object} params
  * @param {string} [params.investigationId]
+ * @param {string} [params.userId]
  * @param {string} params.userMessage
  * @param {object} params.assistantResult
  * @param {number} [params.latencyMs]
@@ -154,6 +170,7 @@ export async function saveUsageMetadata({
  */
 export async function recordChatInteraction({
   investigationId = null,
+  userId = null,
   userMessage,
   assistantResult,
   latencyMs = 0
@@ -161,7 +178,8 @@ export async function recordChatInteraction({
   try {
     const activeInvId = await findOrCreateInvestigation(
       investigationId,
-      userMessage.slice(0, 60) || 'Investigation'
+      userMessage.slice(0, 60) || 'Investigation',
+      userId
     );
 
     // 1. Save User Message
@@ -243,7 +261,96 @@ export async function recordChatInteraction({
 
     return { investigationId: activeInvId };
   } catch (err) {
+    if (err.status === 403) {
+      throw err;
+    }
     console.warn('[Repository] recordChatInteraction non-fatal error:', err.message);
     return { investigationId: investigationId || 'ephemeral-investigation' };
   }
+}
+
+/**
+ * Retrieves a single investigation by ID, strictly enforcing user ownership (anti-IDOR).
+ * @param {string} investigationId
+ * @param {string} userId
+ * @returns {Promise<object>}
+ */
+export async function getInvestigation(investigationId, userId) {
+  const res = await query('SELECT * FROM investigations WHERE id = $1', [investigationId]);
+  if (!res.rows || res.rows.length === 0) {
+    const err = new Error('Investigation not found.');
+    err.status = 404;
+    throw err;
+  }
+  const inv = res.rows[0];
+  if (inv.user_id && userId && inv.user_id !== userId) {
+    const err = new Error('Forbidden: You do not have permission to access this investigation.');
+    err.status = 403;
+    throw err;
+  }
+  return inv;
+}
+
+/**
+ * Lists all investigations belonging to a specific user.
+ * @param {string} userId
+ * @returns {Promise<any[]>}
+ */
+export async function listUserInvestigations(userId) {
+  if (!userId) return [];
+  const res = await query(
+    `SELECT i.*,
+       (SELECT COUNT(*) FROM messages m WHERE m.investigation_id = i.id) as message_count,
+       (SELECT COUNT(*) FROM evidence e WHERE e.investigation_id = i.id) as evidence_count
+     FROM investigations i
+     WHERE i.user_id = $1
+     ORDER BY i.updated_at DESC`,
+    [userId]
+  );
+  return res.rows || [];
+}
+
+/**
+ * Retrieves messages for an investigation after verifying ownership.
+ * @param {string} investigationId
+ * @param {string} userId
+ * @returns {Promise<any[]>}
+ */
+export async function getInvestigationMessages(investigationId, userId) {
+  await getInvestigation(investigationId, userId);
+  const res = await query(
+    'SELECT * FROM messages WHERE investigation_id = $1 ORDER BY created_at ASC',
+    [investigationId]
+  );
+  return res.rows || [];
+}
+
+/**
+ * Retrieves evidence items for an investigation after verifying ownership.
+ * @param {string} investigationId
+ * @param {string} userId
+ * @returns {Promise<any[]>}
+ */
+export async function getInvestigationEvidence(investigationId, userId) {
+  await getInvestigation(investigationId, userId);
+  const res = await query(
+    'SELECT * FROM evidence WHERE investigation_id = $1 ORDER BY created_at ASC',
+    [investigationId]
+  );
+  return res.rows || [];
+}
+
+/**
+ * Retrieves diagnostic reports for an investigation after verifying ownership.
+ * @param {string} investigationId
+ * @param {string} userId
+ * @returns {Promise<any[]>}
+ */
+export async function getInvestigationDiagnosticReport(investigationId, userId) {
+  await getInvestigation(investigationId, userId);
+  const res = await query(
+    'SELECT * FROM diagnostic_reports WHERE investigation_id = $1 ORDER BY created_at DESC',
+    [investigationId]
+  );
+  return res.rows || [];
 }

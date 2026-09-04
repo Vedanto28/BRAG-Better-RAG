@@ -6,13 +6,21 @@ import {
 import { Button, Input, Select, Card, Badge, ConfirmationDialog, useToast } from '../common';
 import { mockUserProfile, mockConnectedProviders, mockUsageMetrics } from '../../mockData';
 
+import { useSession, signOut } from '../../lib/authClient';
+
 export interface SettingsPageProps {
   onNavigateByok: () => void;
+  onLogout?: () => void;
 }
 
-export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByok }) => {
+export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByok, onLogout }) => {
+  const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<'account' | 'usage' | 'general' | 'models' | 'shortcuts' | 'danger'>('account');
-  const [user, setUser] = useState(mockUserProfile);
+  const [user, setUser] = useState({
+    ...mockUserProfile,
+    name: session?.user?.name || mockUserProfile.name,
+    email: session?.user?.email || mockUserProfile.email
+  });
   const [metrics] = useState(mockUsageMetrics);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const { addToast } = useToast();
@@ -299,13 +307,25 @@ export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByo
             <p className="text-xs text-[#6c7280] mt-1">Irreversible security and data operations.</p>
           </div>
 
-          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between py-3 border-t border-[#fb7185]/20">
               <div>
                 <div className="text-xs font-semibold text-[#f5f7fa]">Revoke All Active Sessions</div>
                 <div className="text-[11px] text-[#6c7280]">Invalidate all active session tokens on server</div>
               </div>
-              <Button variant="danger" size="sm" onClick={() => addToast({ type: 'warning', title: 'Sessions Revoked', description: 'All active sessions invalidated.' })}>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await signOut();
+                    addToast({ type: 'warning', title: 'Sessions Revoked', description: 'All active sessions invalidated on server.' });
+                    if (onLogout) onLogout();
+                  } catch (e) {
+                    addToast({ type: 'error', title: 'Error', description: 'Failed to revoke sessions.' });
+                  }
+                }}
+              >
                 Revoke Sessions
               </Button>
             </div>

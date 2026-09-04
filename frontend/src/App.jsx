@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ByokModal from './components/ByokModal.jsx';
 import { ToastProvider, CommandPalette } from './components/common';
 import { LandingPage } from './components/landing/LandingPage.tsx';
@@ -11,6 +11,7 @@ import { useChat } from './hooks/useChat.js';
 import ChatHistory from './components/ChatHistory.jsx';
 import ChatInput from './components/ChatInput.jsx';
 import { Terminal, History, Settings, KeyRound, User, Plus, ShieldCheck, LogOut, Sparkles } from 'lucide-react';
+import { useSession, signOut } from './lib/authClient.js';
 
 function App() {
   const [currentView, setCurrentView] = useState('landing');
@@ -18,7 +19,19 @@ function App() {
   const [isByokOpen, setIsByokOpen] = useState(false);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
 
+  const { data: session, isPending: sessionLoading } = useSession();
+  const isAuthenticated = Boolean(session?.user);
+
   const { history, message, setMessage, loading, error, canSend, sendMessage, dismissError } = useChat();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (err) {
+      console.warn('Logout error:', err);
+    }
+    setCurrentView('landing');
+  };
 
   return (
     <ToastProvider>
@@ -166,6 +179,13 @@ function App() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                  {session?.user && (
+                    <div className="flex items-center gap-2 text-xs font-mono text-[#a5adbb] bg-[#191c22] border border-[#24272f] px-2.5 py-1 rounded-lg">
+                      <div className="w-2 h-2 rounded-full bg-[#10b981]" />
+                      <span>{session.user.name || session.user.email}</span>
+                    </div>
+                  )}
+
                   <button
                     onClick={() => setIsCommandOpen(true)}
                     className="flex items-center gap-2 bg-[#191c22] border border-[#24272f] hover:border-[#6c7280] text-[#6c7280] text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
@@ -173,10 +193,11 @@ function App() {
                     <span>Search or command...</span>
                     <kbd className="px-1.5 py-0.5 bg-[#0f1115] text-[10px] font-mono rounded">Cmd+K</kbd>
                   </button>
+
                   <button
-                    onClick={() => setCurrentView('landing')}
+                    onClick={handleLogout}
                     className="text-xs text-[#6c7280] hover:text-[#f5f7fa] p-1.5 cursor-pointer"
-                    title="Exit to Landing"
+                    title="Sign Out / Exit"
                   >
                     <LogOut className="w-4 h-4" />
                   </button>
@@ -228,7 +249,10 @@ function App() {
                 )}
 
                 {currentView === 'settings' && (
-                  <AccountSettingsPage onNavigateByok={() => setCurrentView('byok')} />
+                  <AccountSettingsPage
+                    onNavigateByok={() => setCurrentView('byok')}
+                    onLogout={handleLogout}
+                  />
                 )}
               </div>
             </main>

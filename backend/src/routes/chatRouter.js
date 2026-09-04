@@ -1,6 +1,14 @@
 import { Router } from 'express';
 import { runAgentOrchestrator } from '../services/agentOrchestrator.js';
-import { recordChatInteraction } from '../db/investigationRepository.js';
+import {
+  recordChatInteraction,
+  listUserInvestigations,
+  getInvestigation,
+  getInvestigationMessages,
+  getInvestigationEvidence,
+  getInvestigationDiagnosticReport
+} from '../db/investigationRepository.js';
+import { requireAuth } from '../middleware/authMiddleware.js';
 
 const chatRouter = Router();
 
@@ -68,7 +76,8 @@ function extractAndValidateUserCredentials(req) {
   return credentials;
 }
 
-chatRouter.post('/chat', async (req, res) => {
+// Protected Chat Endpoint (Requires verified session)
+chatRouter.post('/chat', requireAuth, async (req, res) => {
   const startTime = Date.now();
   try {
     const { message, investigationId } = req.body ?? {};
@@ -101,19 +110,33 @@ chatRouter.post('/chat', async (req, res) => {
     }
 
     const userCredentials = extractAndValidateUserCredentials(req);
+    const userId = req.user?.id || null;
 
     const result = await runAgentOrchestrator(message, { userCredentials });
     const latencyMs = Date.now() - startTime;
 
-    // Persist investigation, messages, evidence, and telemetry
+    // Persist investigation, messages, evidence, and telemetry with user ownership
     try {
-      await recordChatInteraction({
+      const persistenceRes = await recordChatInteraction({
         investigationId,
+        userId,
         userMessage: message,
         assistantResult: result,
         latencyMs
       });
+      if (result.metadata) {
+        result.metadata.investigationId = persistenceRes.investigationId;
+      }
     } catch (dbErr) {
+      if (dbErr.status === 403) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            message: dbErr.message,
+            code: 'FORBIDDEN'
+          }
+        });
+      }
       console.warn('[ChatRouter] Non-fatal DB persistence failure:', dbErr.message);
     }
 
@@ -148,6 +171,60 @@ chatRouter.post('/chat', async (req, res) => {
         observabilityTrace: {}
       }
     });
+  }
+});
+
+// List user investigations (Protected & Isolated)
+chatRouter.get('/investigations', requireAuth, async (req, res) => {
+  try {
+    const investigations = await listUserInvestigations(req.user.id);
+    res.json({ success: true, investigations });
+  } catch (err) {
+    res.status(500).json({ success: false, error: { message: err.message, code: 'INTERNAL_ERROR' } });
+  }
+});
+
+// Get single investigation detail (Protected & Anti-IDOR)
+chatRouter.get('/investigations/:id', requireAuth, async (req, res) => {
+  try {
+    const investigation = await getInvestigation(req.params.id, req.user.id);
+    res.json({ success: true, investigation });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });
+  }
+});
+
+// Get investigation messages (Protected & Anti-IDOR)
+chatRouter.get('/investigations/:id/messages', requireAuth, async (req, res) => {
+  try {
+    const messages = await getInvestigationMessages(req.params.id, req.user.id);
+    res.json({ success: true, messages });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });
+  }
+});
+
+// Get investigation evidence (Protected & Anti-IDOR)
+chatRouter.get('/investigations/:id/evidence', requireAuth, async (req, res) => {
+  try {
+    const evidence = await getInvestigationEvidence(req.params.id, req.user.id);
+    res.json({ success: true, evidence });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });
+  }
+});
+
+// Get investigation diagnostic report (Protected & Anti-IDOR)
+chatRouter.get('/investigations/:id/report', requireAuth, async (req, res) => {
+  try {
+    const reports = await getInvestigationDiagnosticReport(req.params.id, req.user.id);
+    res.json({ success: true, reports });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });
   }
 });
 
