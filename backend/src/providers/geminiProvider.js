@@ -86,11 +86,15 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     }))
   }] : undefined;
 
+  const genConfig = maxTokens 
+    ? { maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } } 
+    : { thinkingConfig: { thinkingBudget: 0 } };
+
   const activeModel = genAI.getGenerativeModel({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: systemPrompt,
     tools: geminiTools,
-    generationConfig: maxTokens ? { maxOutputTokens: maxTokens } : undefined
+    generationConfig: genConfig
   });
 
   const contents = messages.map(msg => {
@@ -194,7 +198,7 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
 
       const apiCall = activeModel.generateContent({
         contents,
-        generationConfig: maxTokens ? { maxOutputTokens: maxTokens } : undefined
+        generationConfig: genConfig
       }, { signal });
 
       // Prevent unhandled rejections if we abandon this promise due to timeout/abort

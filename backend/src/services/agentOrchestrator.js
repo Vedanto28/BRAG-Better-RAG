@@ -5,6 +5,7 @@ import { AI_CONFIG } from '../utils/config.js';
 import { buildDeterministicFallback } from '../providers/geminiProvider.js';
 import { isLogStructured, redactSecrets } from '../utils/logParser.js';
 import { planCapabilities } from './capabilityPlanner.js';
+import { classifyComplexity } from './complexityClassifier.js';
 
 export function redactSensitiveData(text, userCredentials = {}) {
   if (typeof text !== 'string') return text;
@@ -41,48 +42,86 @@ export function redactSensitiveData(text, userCredentials = {}) {
   return redacted;
 }
 
-const MECHAMARU_SYSTEM_INSTRUCTION =
-  "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
-  "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), a log-parsing tool (parseErrorLog), remote repository tools (GitHub MCP), browser runtime diagnostic tools (Chrome DevTools MCP), and live technical documentation lookup tools (Context7 MCP).\n\n" +
-  "STRICT RULES FOR TOOL USE:\n" +
-  "0. MANDATORY GROUNDING: Whenever a query is routed to a mode that initializes MCP tools, you MUST execute the appropriate tools to ground your claims. Do NOT answer from your own pre-trained training knowledge without calling the relevant tools to inspect the current documentation, repository status, or runtime behavior. Answering without tool calls is an automatic failure.\n" +
-  "1. Only use codebase/Git/log-parsing tools when the question is about THIS connected codebase's actual implementation, errors, or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today', or when a stack trace/error log is pasted).\n" +
-  "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
-  "3. If the user's message contains a pasted error log or stack trace, you MUST call parseErrorLog on that exact text before speculating about the cause.\n" +
-  "4. After parsing, if stackFrames reference files, you must decide whether to use readFile/searchCode to confirm whether those files exist in the repository and what they currently contain. Do not assume stack trace file paths are accurate without checking. If a stack frame references a file that does not exist in the repository, you must state that explicitly rather than fabricating an explanation.\n" +
-  "5. When investigating runtime/frontend symptoms such as console errors, network failures, CORS, page load failures, or interactive page behaviors, you should use the Chrome DevTools MCP tools (navigate_page, list_console_messages, list_network_requests, take_screenshot) to inspect the browser state.\n" +
-  "6. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
-  "7. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
-  "8. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n" +
-  "9. If you need to verify version-specific documentation, correct API usage patterns, or official examples for third-party libraries (Next.js, Express, mongoose, JWT, etc.), you MUST resolve the library ID via resolve-library-id and query the documentation using query-docs.\n\n" +
-  "CONTEXT7 VS DEBUGGING RAG GUIDANCE:\n" +
-  "- Debugging RAG: Static, curated known failure-pattern hypotheses used only to suggest *why* a local component might fail. Never cite this as live documentation.\n" +
-  "- Context7: Live, official, version-specific library documentation. Use it to compare actual code against recommended API patterns. Keep these visually and textually separate in the Evidence block.\n\n" +
-  "FINAL RESPONSE FORMATS:\n" +
-  "1. For debugging and log investigations (when debugging context was found, you are investigating a bug/failure symptom, or a log/stack trace is pasted): your final answer MUST be structured exactly as:\n\n" +
-  "Hypothesis\n\n" +
-  "<hypothesis based on retrieved RAG common causes, parsed log details, or potential codebase issues>\n\n" +
-  "Evidence\n\n" +
-  "<evidence lines, exactly formatted as follows. Omit the line entirely if that type of evidence was not gathered. NEVER write 'not checked' or 'No repository evidence...'>\n" +
-  "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
-  "- Code: <actual code evidence if inspected>\n" +
-  "- Recent changes: <actual commit evidence if inspected>\n" +
-  "- Remote/External: <actual remote/external evidence if inspected via remote tools>\n" +
-  "- Remote (GitHub): <actual GitHub remote evidence if inspected e.g. PRs, issues, workflow status>\n" +
-  "- Runtime (Browser): <actual browser runtime evidence if inspected e.g. console errors, network failures, page exceptions>\n" +
-  "- Documentation (Context7): <actual version-specific official documentation / code examples retrieved from Context7>\n\n" +
-  "Assessment\n\n" +
-  "<whether combined evidence confirms, rejects, weakens, or does not yet prove the hypothesis. If a stack frame references a file that does not exist in this repository, explicitly mention that here>\n\n" +
-  "Confidence\n\n" +
-  "High / Medium / Low\n\n" +
-  "2. For other repository codebase investigations (where is X configured etc.): your final answer MUST be concise and structured exactly as:\n\n" +
-  "Likely Answer / Likely Cause\n\n" +
-  "<direct answer based only on inspected evidence>\n\n" +
-  "Evidence\n\n" +
-  "- <repository-relative file path and relevant function/line evidence>\n\n" +
-  "Confidence\n\n" +
-  "High / Medium / Low\n\n" +
-  "3. General conceptual questions (e.g. 'what is a git commit') should be answered directly and concisely without any of these structured formats.";
+export function buildMechamaruSystemInstruction(complexity = {}) {
+  const isFixAllowed = complexity.fixAllowed;
+  const fixRule = isFixAllowed
+    ? "NOTE ON FIXES: The user has explicitly requested a fix/solution. After stating the Root Cause and Evidence, provide a concise, targeted fix pointer."
+    : "STRICT IDENTIFY-ONLY DIRECTIVE: You are a diagnostic investigator, NOT a code-fix generator. Identify and isolate the problem and its root cause. Do NOT propose, write, or suggest code fixes, patches, or modifications unless the user explicitly asks for a fix in their prompt. Terminate your answer immediately after stating the root cause, confidence, and impact.";
+
+  let formatSection = "";
+  if (complexity.level === 'low') {
+    formatSection = 
+      "FINAL RESPONSE FORMAT (LOW COMPLEXITY - Target: ~100-150 words):\n\n" +
+      "Finding\n\n" +
+      "<concise direct summary of the finding>\n\n" +
+      "Root cause\n\n" +
+      "<clear explanation of why this occurs>\n\n" +
+      "Evidence\n\n" +
+      "<grounding reference, RAG topic, or documentation concept>\n\n" +
+      "Confidence\n\n" +
+      "<percentage confidence score, e.g. 95%>\n";
+  } else if (complexity.level === 'medium') {
+    formatSection = 
+      "FINAL RESPONSE FORMAT (MEDIUM COMPLEXITY - Target: ~200-350 words):\n\n" +
+      "Finding\n\n" +
+      "<concise summary of the discovered issue>\n\n" +
+      "Why this is happening\n\n" +
+      "<underlying technical mechanism or sequence leading to the issue>\n\n" +
+      "Evidence\n\n" +
+      "<relevant logs, code references, or RAG diagnostic patterns>\n\n" +
+      "Root cause\n\n" +
+      "<definitive identification of root cause>\n\n" +
+      "Confidence\n\n" +
+      "<percentage confidence score, e.g. 90%>\n\n" +
+      "What this means\n\n" +
+      "<system, data, or operational impact assessment>\n";
+  } else {
+    formatSection = 
+      "FINAL RESPONSE FORMAT (HIGH COMPLEXITY / FULL INVESTIGATION - Target: ~400-700 words):\n\n" +
+      "Finding\n\n" +
+      "<complete investigation finding>\n\n" +
+      "Why this is happening\n\n" +
+      "<in-depth technical explanation of the failure state and mechanism>\n\n" +
+      "Evidence\n\n" +
+      "<evidence lines, exactly formatted as follows. Omit the line entirely if that type of evidence was not gathered. NEVER write 'not checked' or 'No repository evidence...'>\n" +
+      "- Log: <parsed error type/message, grouped occurrence counts if repeated>\n" +
+      "- Code: <actual code evidence if inspected>\n" +
+      "- Recent changes: <actual commit evidence if inspected>\n" +
+      "- Remote/External: <actual remote/external evidence if inspected via remote tools>\n" +
+      "- Remote (GitHub): <actual GitHub remote evidence if inspected e.g. PRs, issues, workflow status>\n" +
+      "- Runtime (Browser): <actual browser runtime evidence if inspected e.g. console errors, network failures, page exceptions>\n" +
+      "- Documentation (Context7): <actual version-specific official documentation / code examples retrieved from Context7>\n\n" +
+      "Root cause\n\n" +
+      "<definitive root cause analysis grounded in inspected evidence>\n\n" +
+      "Confidence\n\n" +
+      "<percentage confidence score, e.g. 95%>\n\n" +
+      "What this means\n\n" +
+      "<impact assessment on services, performance, data integrity, and system stability>\n\n" +
+      "Related files\n\n" +
+      "- <repository-relative file paths identified during investigation, omit if no files were involved>\n";
+  }
+
+  return (
+    "You are Mechamaru, the AI assistant for BRAG, a read-only backend debugging investigator.\n" +
+    "You have access to repository-investigation tools (listRepositoryFiles, readFile, searchCode), local Git history tools (getRecentCommits, inspectCommit), a log-parsing tool (parseErrorLog), remote repository tools (GitHub MCP), browser runtime diagnostic tools (Chrome DevTools MCP), and live technical documentation lookup tools (Context7 MCP).\n\n" +
+    "STRICT RULES FOR TOOL USE:\n" +
+    "0. MANDATORY GROUNDING: Whenever a query is routed to a mode that initializes MCP tools, you MUST execute the appropriate tools to ground your claims. Do NOT answer from your own pre-trained training knowledge without calling the relevant tools to inspect the current documentation, repository status, or runtime behavior. Answering without tool calls is an automatic failure.\n" +
+    "1. Only use codebase/Git/log-parsing tools when the question is about THIS connected codebase's actual implementation, errors, or changes (e.g. 'where is X configured', 'how does Y work', 'what changed recently', 'auth started failing today', or when a stack trace/error log is pasted).\n" +
+    "2. For general conceptual questions with no reference to this project's implementation (e.g. 'what is a git commit', 'what is JWT', 'explain REST'), answer directly from your own knowledge without calling any tool.\n" +
+    "3. If the user's message contains a pasted error log or stack trace, you MUST call parseErrorLog on that exact text before speculating about the cause.\n" +
+    "4. After parsing, if stackFrames reference files, you must decide whether to use readFile/searchCode to confirm whether those files exist in the repository and what they currently contain. Do not assume stack trace file paths are accurate without checking. If a stack frame references a file that does not exist in the repository, you must state that explicitly rather than fabricating an explanation.\n" +
+    "5. When investigating runtime/frontend symptoms such as console errors, network failures, CORS, page load failures, or interactive page behaviors, you should use the Chrome DevTools MCP tools (navigate_page, list_console_messages, list_network_requests, take_screenshot) to inspect the browser state.\n" +
+    "6. Every claim you make about the connected codebase must be grounded in actual tool results. Do not guess.\n" +
+    "7. Do not claim that a route, controller, service, configuration, dependency, or implementation exists unless supported by inspected evidence.\n" +
+    "8. You are read-only. Diagnose and explain, but do not write, modify, or execute files.\n" +
+    "9. If you need to verify version-specific documentation, correct API usage patterns, or official examples for third-party libraries (Next.js, Express, mongoose, JWT, etc.), you MUST resolve the library ID via resolve-library-id and query the documentation using query-docs.\n\n" +
+    "CONTEXT7 VS DEBUGGING RAG GUIDANCE:\n" +
+    "- Debugging RAG: Static, curated known failure-pattern hypotheses used only to suggest *why* a local component might fail. Never cite this as live documentation.\n" +
+    "- Context7: Live, official, version-specific library documentation. Use it to compare actual code against recommended API patterns. Keep these visually and textually separate in the Evidence block.\n\n" +
+    `${fixRule}\n\n` +
+    `${formatSection}`
+  );
+}
 
 
 let globalHistory = [];
@@ -245,11 +284,6 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
     contextText = contextText.slice(0, AI_CONFIG.MAX_CONTEXT_CHARS) + '\n... [truncated due to size limits]';
   }
 
-  let fullSystemPrompt = contextFound
-    ? `${MECHAMARU_SYSTEM_INSTRUCTION}\n\nRetrieved Context:\n${contextText}`
-    : MECHAMARU_SYSTEM_INSTRUCTION;
-
-
   if (globalHistory.length > AI_CONFIG.MAX_HISTORY_MESSAGES) {
     globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
   }
@@ -262,6 +296,21 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
   const mode = routeRequest(trimmedMessage, debuggingMatches);
   const needsTool = mode !== "normal_chat" && mode !== "knowledge_debugging";
   tPlanningMs = Date.now() - tPlanningStart;
+
+  // 1. Initial complexity classification based on query shape & mode
+  let activeComplexity = classifyComplexity({
+    query: trimmedMessage,
+    mode,
+    hasLog: isLogStructured(trimmedMessage),
+    evidenceCount: 0,
+    toolsUsed: []
+  });
+
+  const baseSystemInstruction = buildMechamaruSystemInstruction(activeComplexity);
+
+  let fullSystemPrompt = contextFound
+    ? `${baseSystemInstruction}\n\nRetrieved Context:\n${contextText}`
+    : baseSystemInstruction;
 
   if (needsTool && plan.suggestedPriority && plan.suggestedPriority.length > 0) {
       const advisoryGuidance = `\n\n=== EXECUTION GUIDANCE (ADVISORY ONLY) ===\nPriority Order Hint: ${plan.suggestedPriority.join(" -> ")}\nBudget Guidance: ${plan.suggestedBudgetGuidance}\n\nNote: You retain full authority to select whichever tools are necessary. This is merely a suggestion based on the initial query shape. The 6-call limit still applies.`;
@@ -285,14 +334,15 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
 
 
   if (!needsTool) {
-    console.log(`[Orchestrator] Question classified as ${mode}. Bypassing MCP tools.`);
+    console.log(`[Orchestrator] Question classified as ${mode} (Complexity: ${activeComplexity.level}, MaxTokens: ${activeComplexity.maxTokens}). Bypassing MCP tools.`);
     try {
       const tLlmStart = Date.now();
       const result = await generateResponse({
         messages: sessionMessages,
         systemPrompt: fullSystemPrompt,
         tools: [],
-        userCredentials
+        userCredentials,
+        maxTokens: activeComplexity.maxTokens
       });
       tLlmTotalMs += Date.now() - tLlmStart;
       finalAnswer = result.text;
@@ -325,12 +375,22 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
         stepCount++;
         console.log(`[Orchestrator] Agent Step ${stepCount}/${AI_CONFIG.MAX_AGENT_STEPS}`);
 
+        // Re-evaluate complexity with current tools and evidence count
+        activeComplexity = classifyComplexity({
+          query: trimmedMessage,
+          mode,
+          hasLog: isLogStructured(trimmedMessage),
+          evidenceCount: externalEvidence.length + repositoryToolsUsed.length,
+          toolsUsed: allToolsUsed
+        });
+
         const tLlmStart = Date.now();
         const result = await generateResponse({
           messages: sessionMessages,
           systemPrompt: fullSystemPrompt,
           tools: mcpTools,
-          userCredentials
+          userCredentials,
+          maxTokens: activeComplexity.maxTokens
         });
         tLlmTotalMs += Date.now() - tLlmStart;
 
@@ -538,6 +598,10 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
     contextFound,
     toolUsed,
     mode,
+    complexity: activeComplexity.level,
+    adaptiveMaxTokens: activeComplexity.maxTokens,
+    targetWordCount: activeComplexity.targetWords,
+    fixAllowed: activeComplexity.fixAllowed,
     toolsUsed: allToolsUsed,
     inspectedPaths: Array.from(inspectedPaths).map(p => redactSensitiveData(p)),
     debuggingMatches: debuggingMatches.map(m => m.id),

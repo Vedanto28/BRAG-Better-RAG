@@ -21,7 +21,8 @@ export async function generateResponse({
   systemPrompt,
   tools,
   userCredentials = {},
-  mockUsage = null
+  mockUsage = null,
+  maxTokens = AI_CONFIG.MAX_OUTPUT_TOKENS
 }) {
   // MOCK MODE: When MOCK_LLM=true, delegate to the isolated mock handler module.
   if (process.env.MOCK_LLM === 'true') {
@@ -59,7 +60,7 @@ export async function generateResponse({
         messages,
         systemPrompt,
         tools,
-        maxTokens: AI_CONFIG.MAX_OUTPUT_TOKENS,
+        maxTokens,
         signal,
         apiKey,
         baseUrl: spec.baseUrl,
