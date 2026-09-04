@@ -3,6 +3,11 @@ export const AI_CONFIG = {
   MAX_CONTEXT_CHARS: parseInt(process.env.MAX_CONTEXT_CHARS || '5000', 10),
   MAX_HISTORY_MESSAGES: parseInt(process.env.MAX_HISTORY_MESSAGES || '8', 10),
   MAX_OUTPUT_TOKENS: parseInt(process.env.MAX_OUTPUT_TOKENS || '500', 10),
+  ADAPTIVE_OUTPUT_TOKENS: {
+    low: parseInt(process.env.ADAPTIVE_TOKENS_LOW || '250', 10),
+    medium: parseInt(process.env.ADAPTIVE_TOKENS_MEDIUM || '500', 10),
+    high: parseInt(process.env.ADAPTIVE_TOKENS_HIGH || '900', 10)
+  },
   MAX_RAG_RESULTS: parseInt(process.env.MAX_RAG_RESULTS || '3', 10),
   MAX_AGENT_STEPS: parseInt(process.env.MAX_AGENT_STEPS || '3', 10),
   MAX_TOOL_CALLS_PER_REQUEST: parseInt(process.env.MAX_TOOL_CALLS_PER_REQUEST || '2', 10),
