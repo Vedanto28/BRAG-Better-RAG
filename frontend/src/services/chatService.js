@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace(/\/chat$/, '')
-  : (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://brag-better-rag.onrender.com/api');
+  : (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : '/api');
 
 const CHAT_URL = `${API_BASE}/chat`;
 

@@ -15,7 +15,7 @@ dotenv.config({ path: rootEnvPath });
 const pool = await getPool();
 
 const isProduction = process.env.NODE_ENV === 'production';
-const baseURL = process.env.BETTER_AUTH_URL || (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:5000');
+const baseURL = process.env.BETTER_AUTH_URL || (isProduction ? 'https://brag-better-rag.vercel.app' : (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:5000'));
 
 export const auth = betterAuth({
   database: pool,
@@ -51,7 +51,7 @@ export const auth = betterAuth({
   ],
   advanced: {
     defaultCookieAttributes: {
-      sameSite: isProduction ? 'none' : 'lax',
+      sameSite: 'lax',
       secure: isProduction || baseURL.startsWith('https'),
       httpOnly: true,
       path: '/'
