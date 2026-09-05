@@ -18,6 +18,7 @@ dotenv.config({ path: backendEnvPath });
 dotenv.config({ path: rootEnvPath });
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Strict CORS for credentialed Better Auth sessions
