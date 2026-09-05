@@ -1,8 +1,22 @@
-const API_BASE = import.meta.env.VITE_API_URL
-  ? import.meta.env.VITE_API_URL.replace(/\/chat$/, '')
-  : (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : '/api');
+function getApiBase() {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      const customUrl = import.meta.env.VITE_API_URL;
+      if (customUrl) {
+        const sanitized = customUrl.replace(/\/+$/, '').replace(/\/chat$/, '');
+        return sanitized.endsWith('/api') ? sanitized : `${sanitized}/api`;
+      }
+      return 'http://localhost:5000/api';
+    }
+    // Production browser: ALWAYS same-origin /api via Vercel proxy
+    return '/api';
+  }
+  return '/api';
+}
 
+const API_BASE = getApiBase();
 const CHAT_URL = `${API_BASE}/chat`;
+
 
 /**
  * Extracts active BYOK provider credentials from browser session storage.
