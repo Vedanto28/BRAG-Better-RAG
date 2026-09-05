@@ -1,6 +1,8 @@
+process.env.NODE_ENV = 'test';
 import assert from 'node:assert';
 import http from 'node:http';
 import app from '../server.js';
+
 import { query } from '../src/db/connection.js';
 import auth from '../src/auth/auth.js';
 import {
@@ -234,8 +236,84 @@ async function runTests() {
     assert.strictEqual(idorAppendRes.statusCode, 403, 'User A appending to User B investigation must return 403 Forbidden');
     console.log('✅ PASS: User A cannot hijack or append to User B investigation (403 Forbidden).\n');
 
-    // TEST 7: Logout Invalidation
-    console.log('--- TEST 7: Server-side Session Invalidation / Logout ---');
+    // TEST 7: User Profile & Preferences Provisioning & Management (Phase 2)
+    console.log('--- TEST 7: User Profile & Preferences Management (Phase 2) ---');
+    const profileResA = await makeRequest('/api/user/profile', {
+      headers: {
+        'Cookie': userACookie
+      }
+    });
+    assert.strictEqual(profileResA.statusCode, 200, 'Profile endpoint must return 200 for authenticated user');
+    assert.strictEqual(profileResA.data.success, true);
+    assert.strictEqual(profileResA.data.user.id, userAId);
+    assert.strictEqual(profileResA.data.user.email, emailA);
+    assert.strictEqual(profileResA.data.profile.display_name, 'User Alpha');
+    assert.strictEqual(profileResA.data.preferences.theme, 'dark');
+    console.log('✅ PASS: Profile & default preferences automatically provisioned and retrieved.');
+
+    // Update profile display name and headline
+    const updateProfileRes = await makeRequest('/api/user/profile', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': userACookie
+      },
+      body: {
+        displayName: 'Alpha Commander',
+        headline: 'Lead Root Cause Analyst',
+        avatarUrl: 'https://example.com/avatar.png'
+      }
+    });
+    assert.strictEqual(updateProfileRes.statusCode, 200, 'Profile update must return 200');
+    assert.strictEqual(updateProfileRes.data.profile.display_name, 'Alpha Commander');
+    assert.strictEqual(updateProfileRes.data.profile.headline, 'Lead Root Cause Analyst');
+    console.log('✅ PASS: Profile updated successfully.');
+
+    // Update preferences
+    const updatePrefRes = await makeRequest('/api/user/preferences', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': userACookie
+      },
+      body: {
+        theme: 'dark',
+        defaultProvider: 'gemini',
+        autoScrollConsole: false
+      }
+    });
+    assert.strictEqual(updatePrefRes.statusCode, 200, 'Preferences update must return 200');
+    assert.strictEqual(updatePrefRes.data.preferences.theme, 'dark');
+    assert.strictEqual(updatePrefRes.data.preferences.default_provider, 'gemini');
+    assert.strictEqual(updatePrefRes.data.preferences.auto_scroll_console, false);
+    console.log('✅ PASS: User preferences updated successfully.');
+
+    // TEST 8: Anti-Spoofing Identity Derivation
+    console.log('--- TEST 8: Server Derives Identity Strictly From Session (Anti-Spoofing) ---');
+    // User A passes body claiming to be User B
+    const spoofProfileRes = await makeRequest('/api/user/profile', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': userACookie
+      },
+      body: {
+        userId: userBId, // Spoofed user ID
+        displayName: 'Hacked Beta Display Name'
+      }
+    });
+    assert.strictEqual(spoofProfileRes.statusCode, 200);
+    // Verify User B's profile was NOT modified
+    const profileResB = await makeRequest('/api/user/profile', {
+      headers: {
+        'Cookie': userBCookie
+      }
+    });
+    assert.strictEqual(profileResB.data.profile.display_name, 'User Beta', 'User B profile must remain untouched despite User A spoof attempt');
+    console.log('✅ PASS: Server ignores client-supplied userId and derives identity strictly from authenticated session.\n');
+
+    // TEST 9: Logout / Session Invalidation
+    console.log('--- TEST 9: Server-side Session Invalidation / Logout ---');
     // Invalidate User A session in DB
     await query('DELETE FROM "session" WHERE token = $1', [sessionAToken]);
     const postLogoutRes = await makeRequest('/api/investigations', {
@@ -246,8 +324,8 @@ async function runTests() {
     assert.strictEqual(postLogoutRes.statusCode, 401, 'Logged out session must return 401');
     console.log('✅ PASS: Session token invalidation immediately blocks access (401 Unauthorized).\n');
 
-    // TEST 8: CORS configuration
-    console.log('--- TEST 8: CORS Restrictiveness & Credentials Configuration ---');
+    // TEST 10: CORS configuration
+    console.log('--- TEST 10: CORS Restrictiveness & Credentials Configuration ---');
     const validOriginRes = await makeRequest('/api/health', {
       headers: {
         'Origin': 'https://brag-better-rag.vercel.app'
@@ -276,8 +354,8 @@ async function runTests() {
     );
     console.log('✅ PASS: CORS is strictly locked to trusted origins with credentials enabled.\n');
 
-    // TEST 9: Secret Isolation
-    console.log('--- TEST 9: Secret Isolation in Logs and Errors ---');
+    // TEST 11: Secret Isolation
+    console.log('--- TEST 11: Secret Isolation in Logs and Errors ---');
     const secretKey = 'sk-secret-byok-test-key-1234567890';
     const errorRes = await makeRequest('/api/chat', {
       method: 'POST',
@@ -293,8 +371,18 @@ async function runTests() {
     assert(!serializedResponse.includes(process.env.BETTER_AUTH_SECRET || 'brag-secret'), 'Auth secret must never leak');
     console.log('✅ PASS: No API keys or session secrets are leaked in error responses.\n');
 
+    // TEST 12: API 404 Catch-All Returns JSON (Not HTML)
+    console.log('--- TEST 12: API 404 Catch-All Returns JSON Contract ---');
+    const nonExistentApiRes = await makeRequest('/api/non-existent-route-xyz');
+    assert.strictEqual(nonExistentApiRes.statusCode, 404, 'Unmapped API route must return 404');
+    assert.strictEqual(typeof nonExistentApiRes.data, 'object', 'Response must be parsed JSON object, not HTML');
+    assert.strictEqual(nonExistentApiRes.data.success, false);
+    assert.strictEqual(nonExistentApiRes.data.error.code, 'NOT_FOUND');
+    assert.strictEqual(nonExistentApiRes.headers['content-type'].includes('application/json'), true, 'Content-Type must be application/json');
+    console.log('✅ PASS: Unmapped /api/* routes return structured JSON error instead of HTML 404.\n');
+
     console.log('============================================================');
-    console.log('ALL PHASE 6 AUTHENTICATION & OWNERSHIP TESTS PASSED! (0 REAL LLM CALLS)');
+    console.log('ALL PHASE 2 & PHASE 6 AUTHENTICATION & OWNERSHIP TESTS PASSED! (0 REAL LLM CALLS)');
     console.log('============================================================');
 
   } finally {

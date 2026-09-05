@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { toNodeHandler } from 'better-auth/node';
 import auth from './src/auth/auth.js';
 import chatRouter from './src/routes/chatRouter.js';
+import userRouter from './src/routes/userRouter.js';
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import mcpServer from "./src/services/mcpServer.js";
 
@@ -114,6 +115,18 @@ app.post('/api/messages', async (req, res) => {
 });
 
 app.use('/api', chatRouter);
+app.use('/api', userRouter);
+
+// Catch-all 404 JSON handler for unmapped API routes
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: `API endpoint ${req.method} ${req.originalUrl} not found.`
+    }
+  });
+});
 
 // Clean error handler for CORS violations and unexpected errors
 app.use((err, req, res, next) => {
@@ -136,16 +149,20 @@ app.use((err, req, res, next) => {
   });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+let server;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[Server] Error: Port ${PORT} is already in use by another process.`);
-  } else {
-    console.error('[Server] Server error:', err);
-  }
-});
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Server] Error: Port ${PORT} is already in use by another process.`);
+    } else {
+      console.error('[Server] Server error:', err);
+    }
+  });
+}
 
 export default app;
+

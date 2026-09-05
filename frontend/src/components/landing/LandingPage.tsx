@@ -4,6 +4,11 @@ export interface LandingPageProps {
   onStartGuest: () => void;
   onLogin: () => void;
   onOpenByok: () => void;
+  user?: { id?: string; name?: string; email?: string; image?: string } | null;
+  isAuthenticated?: boolean;
+  isLoading?: boolean;
+  onLogout?: () => void;
+  onNavigateWorkbench?: () => void;
 }
 
 const LANDING_CSS = `
@@ -397,7 +402,16 @@ const LANDING_CSS = `
   }
 `;
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onStartGuest, onLogin, onOpenByok }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({
+  onStartGuest,
+  onLogin,
+  onOpenByok,
+  user,
+  isAuthenticated = false,
+  isLoading = false,
+  onLogout,
+  onNavigateWorkbench
+}) => {
   const [activeTimelineIdx, setActiveTimelineIdx] = useState(0);
   const [codeIdx, setCodeIdx] = useState(0);
   const [codeVisible, setCodeVisible] = useState(true);
@@ -606,22 +620,58 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartGuest, onLogin,
             <a onClick={onOpenByok}>BYOK Hub</a>
           </div>
           <div className="nav-right">
-            <button
-              onClick={onLogin}
-              onMouseMove={handleMagneticMove}
-              onMouseLeave={handleMagneticLeave}
-              className="btn btn-secondary btn-sm magnetic"
-            >
-              Log In
-            </button>
-            <button
-              onClick={onStartGuest}
-              onMouseMove={handleMagneticMove}
-              onMouseLeave={handleMagneticLeave}
-              className="btn btn-primary btn-sm magnetic"
-            >
-              Start Investigation →
-            </button>
+            {isLoading ? (
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-8 bg-[#20242C] rounded-lg animate-pulse" />
+                <div className="w-24 h-8 bg-[#20242C] rounded-lg animate-pulse" />
+              </div>
+            ) : isAuthenticated && user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 bg-[#1A1D24] border border-[#2B303A] px-3 py-1.5 rounded-lg text-xs font-mono text-[#F5F7FA]">
+                  <div className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+                  <span className="truncate max-w-[140px]">{user.name || user.email}</span>
+                </div>
+                <button
+                  onClick={onNavigateWorkbench || onStartGuest}
+                  onMouseMove={handleMagneticMove}
+                  onMouseLeave={handleMagneticLeave}
+                  className="btn btn-primary btn-sm magnetic"
+                >
+                  <span>Open Console</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                </button>
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    onMouseMove={handleMagneticMove}
+                    onMouseLeave={handleMagneticLeave}
+                    className="btn btn-secondary btn-sm magnetic"
+                    title="Sign Out"
+                  >
+                    Log Out
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={onLogin}
+                  onMouseMove={handleMagneticMove}
+                  onMouseLeave={handleMagneticLeave}
+                  className="btn btn-secondary btn-sm magnetic"
+                >
+                  Log In
+                </button>
+                <button
+                  onClick={onStartGuest}
+                  onMouseMove={handleMagneticMove}
+                  onMouseLeave={handleMagneticLeave}
+                  className="btn btn-primary btn-sm magnetic"
+                >
+                  <span>Start Investigation →</span>
+                </button>
+              </div>
+            )}
           </div>
         </nav>
       </header>

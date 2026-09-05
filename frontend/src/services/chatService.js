@@ -50,7 +50,25 @@ export async function sendChatMessage(message, options = {}) {
     signal: options.signal
   });
 
-  const data = await response.json();
+  let data;
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      data = await response.json();
+    } catch {
+      data = { success: false, error: { message: 'Invalid JSON response from server.' } };
+    }
+  } else {
+    const text = await response.text();
+    data = {
+      success: false,
+      error: {
+        message: response.status === 401
+          ? 'Authentication required. Please log in to start investigations.'
+          : `Server error (${response.status}): ${text.slice(0, 120)}`
+      }
+    };
+  }
 
   if (!response.ok || !data.success) {
     const errObj = data.error || {};
@@ -68,7 +86,12 @@ export async function fetchUserInvestigations() {
     credentials: 'include'
   });
   if (!res.ok) {
-    throw new Error('Failed to load investigations');
+    let errMessage = 'Failed to load investigations';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
   }
   return res.json();
 }
@@ -81,7 +104,72 @@ export async function fetchInvestigationDetail(id) {
     credentials: 'include'
   });
   if (!res.ok) {
-    throw new Error('Failed to load investigation details');
+    let errMessage = 'Failed to load investigation details';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
+  }
+  return res.json();
+}
+
+/**
+ * Retrieves profile and preferences for authenticated user.
+ */
+export async function fetchUserProfile() {
+  const res = await fetch(`${API_BASE}/user/profile`, {
+    credentials: 'include'
+  });
+  if (!res.ok) {
+    let errMessage = 'Failed to load user profile';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
+  }
+  return res.json();
+}
+
+/**
+ * Updates user profile details.
+ */
+export async function updateUserProfileApi(profileData) {
+  const res = await fetch(`${API_BASE}/user/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profileData)
+  });
+  if (!res.ok) {
+    let errMessage = 'Failed to update profile';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
+  }
+  return res.json();
+}
+
+/**
+ * Updates user application preferences.
+ */
+export async function updateUserPreferencesApi(preferencesData) {
+  const res = await fetch(`${API_BASE}/user/preferences`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preferencesData)
+  });
+  if (!res.ok) {
+    let errMessage = 'Failed to update preferences';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
   }
   return res.json();
 }

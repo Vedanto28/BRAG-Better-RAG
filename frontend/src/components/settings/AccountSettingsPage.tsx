@@ -6,7 +6,7 @@ import {
 import { Button, Input, Select, Card, Badge, ConfirmationDialog, useToast } from '../common';
 import { mockUserProfile, mockConnectedProviders, mockUsageMetrics } from '../../mockData';
 
-import { useSession, signOut } from '../../lib/authClient';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 export interface SettingsPageProps {
   onNavigateByok: () => void;
@@ -14,34 +14,47 @@ export interface SettingsPageProps {
 }
 
 export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByok, onLogout }) => {
-  const { data: session } = useSession();
+  const { user, profile, preferences, updateProfile, updatePreferences, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'account' | 'usage' | 'general' | 'models' | 'shortcuts' | 'danger'>('account');
-  const [user, setUser] = useState({
-    ...mockUserProfile,
-    name: session?.user?.name || mockUserProfile.name,
-    email: session?.user?.email || mockUserProfile.email
-  });
   const [metrics] = useState(mockUsageMetrics);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const { addToast } = useToast();
 
-  // Form states
-  const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
-  const [role, setRole] = useState(user.role);
-  const [defaultModel, setDefaultModel] = useState('openrouter');
+  // Form states initialized with live profile data
+  const [name, setName] = useState(profile?.display_name || user?.name || mockUserProfile.name);
+  const [email, setEmail] = useState(user?.email || mockUserProfile.email);
+  const [headline, setHeadline] = useState(profile?.headline || 'Tech Lead');
+  const [defaultModel, setDefaultModel] = useState(preferences?.default_provider || 'gemini');
   const [maxBudget, setMaxBudget] = useState(6);
-  const [enableGuidance, setEnableGuidance] = useState(true);
+  const [enableGuidance, setEnableGuidance] = useState(preferences?.telemetry_enabled ?? true);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  // Sync state if profile/preferences load after mount
+  React.useEffect(() => {
+    if (profile?.display_name) setName(profile.display_name);
+    if (user?.email) setEmail(user.email);
+    if (profile?.headline) setHeadline(profile.headline);
+    if (preferences?.default_provider) setDefaultModel(preferences.default_provider);
+    if (typeof preferences?.telemetry_enabled === 'boolean') setEnableGuidance(preferences.telemetry_enabled);
+  }, [profile, user, preferences]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setUser((prev) => ({ ...prev, name, email, role: role as any }));
-    addToast({ type: 'success', title: 'Profile Updated', description: 'Your account settings have been persisted.' });
+    try {
+      await updateProfile({ displayName: name, headline });
+      addToast({ type: 'success', title: 'Profile Updated', description: 'Your account settings have been persisted.' });
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Update Failed', description: err.message || 'Could not update profile.' });
+    }
   };
 
-  const handleSavePreferences = (e: React.FormEvent) => {
+  const handleSavePreferences = async (e: React.FormEvent) => {
     e.preventDefault();
-    addToast({ type: 'success', title: 'Preferences Saved', description: 'Agent investigation defaults updated.' });
+    try {
+      await updatePreferences({ defaultProvider: defaultModel, telemetryEnabled: enableGuidance });
+      addToast({ type: 'success', title: 'Preferences Saved', description: 'Agent investigation defaults updated.' });
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Save Failed', description: err.message || 'Could not save preferences.' });
+    }
   };
 
   return (
@@ -103,8 +116,8 @@ export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByo
             <div className="flex items-center gap-5">
               <div className="relative">
                 <img
-                  src={user.avatarUrl}
-                  alt={user.name}
+                  src={profile?.avatar_url || user?.image || mockUserProfile.avatarUrl}
+                  alt={name}
                   className="w-16 h-16 rounded-full border-2 border-[#7c5cff]/40 object-cover"
                 />
                 <button
@@ -116,10 +129,10 @@ export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByo
               </div>
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-[#f5f7fa]">{user.name}</span>
-                  <Badge variant="violet" label={user.role} size="sm" />
+                  <span className="text-sm font-semibold text-[#f5f7fa]">{name}</span>
+                  <Badge variant="violet" label={headline} size="sm" />
                 </div>
-                <span className="text-xs text-[#6c7280]">GitHub connected as @{user.githubHandle}</span>
+                <span className="text-xs text-[#6c7280]">Account: {email}</span>
               </div>
             </div>
 
@@ -127,17 +140,19 @@ export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByo
               <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
               <Input label="Work Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
               <Select
-                label="Engineering Role"
-                value={role}
-                onChange={(e) => setRole(e.target.value as any)}
+                label="Engineering Role / Headline"
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
                 options={[
                   { label: 'Tech Lead', value: 'Tech Lead' },
+                  { label: 'Senior Engineer', value: 'Senior Engineer' },
                   { label: 'Engineer', value: 'Engineer' },
-                  { label: 'DevOps', value: 'DevOps' },
+                  { label: 'DevOps / SRE', value: 'DevOps / SRE' },
+                  { label: 'Security Lead', value: 'Security Lead' },
                   { label: 'Admin', value: 'Admin' },
                 ]}
               />
-              <Input label="GitHub Handle" value={user.githubHandle} disabled helperText="Managed via OAuth link" />
+              <Input label="Authentication Provider" value={user ? 'Authenticated via Better Auth' : 'Guest'} disabled helperText="Managed via Session Token" />
             </div>
 
             <div className="flex justify-end pt-2">

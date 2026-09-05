@@ -112,6 +112,20 @@ chatRouter.post('/chat', requireAuth, async (req, res) => {
     const userCredentials = extractAndValidateUserCredentials(req);
     const userId = req.user?.id || null;
 
+    // Upfront IDOR check if appending to existing investigation
+    if (investigationId) {
+      const existingInv = await getInvestigation(investigationId);
+      if (existingInv && existingInv.user_id && existingInv.user_id !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            message: 'Forbidden: You do not have permission to access or append to this investigation.',
+            code: 'FORBIDDEN'
+          }
+        });
+      }
+    }
+
     const result = await runAgentOrchestrator(message, { userCredentials });
     const latencyMs = Date.now() - startTime;
 
