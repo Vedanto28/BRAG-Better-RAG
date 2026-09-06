@@ -27,9 +27,11 @@ frontend/.env.*
 *.local
 
 # Scratch and Cloned Repositories
-backend/scratch/cloned_repos/
+backend/scratch/
+scratch/
 cloned_repos/
 coverage/
+
 
 # Editor directories and files
 .vscode/*
