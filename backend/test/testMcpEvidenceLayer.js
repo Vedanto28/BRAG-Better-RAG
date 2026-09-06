@@ -10,6 +10,8 @@ import { runAgentOrchestrator } from '../src/services/agentOrchestrator.js';
 import { query } from '../src/db/connection.js';
 import { recordChatInteraction, saveEvidence, findOrCreateInvestigation } from '../src/db/investigationRepository.js';
 
+import path from 'path';
+dotenv.config({ path: path.resolve('backend/.env') });
 dotenv.config();
 
 async function runMcpEvidenceTests() {

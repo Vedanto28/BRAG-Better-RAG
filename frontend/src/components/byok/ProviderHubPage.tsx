@@ -45,12 +45,28 @@ const PROVIDERS: ProviderMeta[] = [
     envKeyName: 'OPENAI_API_KEY'
   },
   {
+    id: 'anthropic',
+    name: 'Anthropic',
+    desc: 'Claude 3.5 Sonnet & Haiku models',
+    glyph: Asterisk,
+    color: '#d97706',
+    envKeyName: 'ANTHROPIC_API_KEY'
+  },
+  {
     id: 'openrouter',
     name: 'OpenRouter',
     desc: 'Unified multi-model API gateway',
     glyph: Route,
     color: '#4f7fff',
     envKeyName: 'OPENROUTER_API_KEY'
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral AI',
+    desc: 'Mistral Large & Small reasoning models',
+    glyph: CheckCircle2,
+    color: '#f97316',
+    envKeyName: 'MISTRAL_API_KEY'
   },
   {
     id: 'deepseek',
@@ -67,6 +83,14 @@ const PROVIDERS: ProviderMeta[] = [
     glyph: Sliders,
     color: '#fb7185',
     envKeyName: 'CEREBRAS_API_KEY'
+  },
+  {
+    id: 'xai',
+    name: 'xAI (Grok)',
+    desc: 'Grok-2 reasoning & diagnostic model',
+    glyph: Zap,
+    color: '#ec4899',
+    envKeyName: 'XAI_API_KEY'
   }
 ];
 

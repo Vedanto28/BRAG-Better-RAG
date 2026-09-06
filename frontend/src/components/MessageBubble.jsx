@@ -1,8 +1,14 @@
 import React from 'react';
-import { Bot, User, Sparkles, Cpu, CheckCircle2, ShieldCheck, Database } from 'lucide-react';
+import { Bot, User, Sparkles, Cpu, CheckCircle2, ShieldCheck, Database, Layers } from 'lucide-react';
+import PipelineTrace from './PipelineTrace.jsx';
+import EvidenceDrawer from './EvidenceDrawer.jsx';
+import DiagnosticStructuredCard from './DiagnosticStructuredCard.jsx';
+import { parseDiagnosticResponse } from '../utils/diagnosticParser.js';
 
 export default function MessageBubble({ role, content, metadata, timestamp }) {
   const isUser = role === 'user';
+  const parsed = !isUser ? parseDiagnosticResponse(content) : null;
+  const inlineEvidence = parsed?.sections?.evidence || null;
 
   return (
     <article
@@ -21,7 +27,8 @@ export default function MessageBubble({ role, content, metadata, timestamp }) {
       </div>
 
       {/* Bubble Container */}
-      <div className={`flex flex-col gap-1.5 max-w-[85%] md:max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1.5 max-w-[92%] md:max-w-[85%] ${isUser ? 'items-end' : 'items-start'} w-full`}>
+        {/* Header line */}
         <div className="flex items-center gap-2 px-1 text-[11px] font-mono text-[#6c7280]">
           <span className="font-semibold uppercase tracking-wider text-[#a5adbb]">
             {isUser ? 'You' : 'Mechamaru'}
@@ -36,15 +43,28 @@ export default function MessageBubble({ role, content, metadata, timestamp }) {
         </div>
 
         <div
-          className={`px-4 py-3 rounded-xl text-sm leading-relaxed border transition-colors ${
+          className={`w-full px-4 py-3.5 rounded-xl text-sm leading-relaxed border transition-colors ${
             isUser
               ? 'bg-[#191c22] border-[#24272f] text-[#f5f7fa]'
-              : 'bg-[#131519] border-[#1b1e24] text-[#f5f7fa]'
+              : 'bg-[#111317] border-[#1b1e24] text-[#f5f7fa] shadow-sm'
           }`}
         >
-          <div className="whitespace-pre-wrap break-words font-sans selection:bg-[#7c5cff]/30">
-            {content}
-          </div>
+          {isUser ? (
+            <div className="whitespace-pre-wrap break-words font-sans selection:bg-[#7c5cff]/30 text-sm">
+              {content}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 w-full">
+              {/* Execution / Pipeline Trace */}
+              {metadata && <PipelineTrace metadata={metadata} />}
+
+              {/* Structured Diagnostic Display */}
+              <DiagnosticStructuredCard content={content} />
+
+              {/* Expandable Evidence Drawer (Observed Fact / Repository Fact / Inference) */}
+              <EvidenceDrawer metadata={metadata} inlineEvidenceText={inlineEvidence} />
+            </div>
+          )}
 
           {/* Diagnostic Metadata Footer for Mechamaru responses */}
           {!isUser && metadata && (
@@ -63,6 +83,9 @@ export default function MessageBubble({ role, content, metadata, timestamp }) {
               )}
               {metadata.mode && metadata.mode !== 'unknown' && (
                 <span className="text-[#6c7280]">mode: {metadata.mode}</span>
+              )}
+              {metadata.complexity && (
+                <span className="text-[#a5adbb]">complexity: {metadata.complexity}</span>
               )}
             </div>
           )}

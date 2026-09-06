@@ -236,12 +236,14 @@ function routeRequest(query, debuggingMatches = []) {
 export async function runAgentOrchestrator(message, optionsOrSignal) {
   let signal = undefined;
   let userCredentials = {};
+  let conversationHistory = null;
   if (optionsOrSignal && typeof optionsOrSignal === 'object') {
     if (optionsOrSignal.aborted !== undefined || typeof optionsOrSignal.addEventListener === 'function') {
       signal = optionsOrSignal;
     } else {
       signal = optionsOrSignal.signal;
       userCredentials = optionsOrSignal.userCredentials || {};
+      conversationHistory = optionsOrSignal.conversationHistory || null;
     }
   }
 
@@ -293,13 +295,15 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
     contextText = contextText.slice(0, AI_CONFIG.MAX_CONTEXT_CHARS) + '\n... [truncated due to size limits]';
   }
 
-  if (globalHistory.length > AI_CONFIG.MAX_HISTORY_MESSAGES) {
-    globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
-  }
+  // Prioritize explicitly passed conversation history (from PostgreSQL persisted messages),
+  // otherwise fallback to globalHistory if running standalone/test without DB.
+  const historyToUse = Array.isArray(conversationHistory)
+    ? conversationHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES)
+    : globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
 
   tPlanningStart = Date.now();
   const plan = planCapabilities(trimmedMessage);
-  const sessionMessages = [...globalHistory, { role: 'user', content: trimmedMessage }];
+  const sessionMessages = [...historyToUse, { role: 'user', content: trimmedMessage }];
   // Route determines which evidence mode to use. normal_chat and knowledge_debugging bypass MCP
   // entirely (no tool init, no connection cost).
   const mode = routeRequest(trimmedMessage, debuggingMatches);
@@ -341,6 +345,7 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
   let toolCallLimitReached = false;
   let exposedProviders = [];
   let registryAvailableTools = 0;
+  let cumulativeUsage = { prompt_tokens: 0, completion_tokens: 0 };
 
 
   if (!needsTool) {
@@ -355,6 +360,10 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
         maxTokens: activeComplexity.maxTokens
       });
       tLlmTotalMs += Date.now() - tLlmStart;
+      if (result.usage) {
+        cumulativeUsage.prompt_tokens += (result.usage.prompt_tokens || 0);
+        cumulativeUsage.completion_tokens += (result.usage.completion_tokens || 0);
+      }
       finalAnswer = result.text;
       responseProvider = result.provider;
     } catch (error) {
@@ -403,6 +412,10 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
           maxTokens: activeComplexity.maxTokens
         });
         tLlmTotalMs += Date.now() - tLlmStart;
+        if (result.usage) {
+          cumulativeUsage.prompt_tokens += (result.usage.prompt_tokens || 0);
+          cumulativeUsage.completion_tokens += (result.usage.completion_tokens || 0);
+        }
 
         responseProvider = result.provider;
 
@@ -580,11 +593,13 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
     }
   }
 
-  globalHistory.push({ role: 'user', content: trimmedMessage });
-  globalHistory.push({ role: 'assistant', content: finalAnswer });
+  if (!conversationHistory) {
+    globalHistory.push({ role: 'user', content: trimmedMessage });
+    globalHistory.push({ role: 'assistant', content: finalAnswer });
 
-  if (globalHistory.length > AI_CONFIG.MAX_HISTORY_MESSAGES) {
-    globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
+    if (globalHistory.length > AI_CONFIG.MAX_HISTORY_MESSAGES) {
+      globalHistory = globalHistory.slice(-AI_CONFIG.MAX_HISTORY_MESSAGES);
+    }
   }
 
   if (typeof finalAnswer !== 'string' || finalAnswer.trim().length === 0) {
@@ -605,6 +620,7 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
 
   const finalMetadata = {
     provider: responseProvider || "unknown",
+    usage: cumulativeUsage,
     contextFound,
     toolUsed,
     mode,

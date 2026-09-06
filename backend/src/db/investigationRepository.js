@@ -354,3 +354,19 @@ export async function getInvestigationDiagnosticReport(investigationId, userId) 
   );
   return res.rows || [];
 }
+
+/**
+ * Updates the status of an investigation after verifying ownership.
+ * @param {string} investigationId
+ * @param {string} status 'active' | 'completed' | 'archived'
+ * @param {string} userId
+ * @returns {Promise<object>}
+ */
+export async function updateInvestigationStatus(investigationId, status, userId) {
+  await getInvestigation(investigationId, userId);
+  const res = await query(
+    'UPDATE investigations SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+    [status, investigationId]
+  );
+  return res.rows[0] || null;
+}

@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import { classifyComplexity, isFixRequested, ADAPTIVE_TOKEN_LIMITS } from '../src/services/complexityClassifier.js';
 import { buildMechamaruSystemInstruction, runAgentOrchestrator } from '../src/services/agentOrchestrator.js';
 
+import path from 'path';
+dotenv.config({ path: path.resolve('backend/.env') });
 dotenv.config();
 
 async function runDiagnosticQualityTests() {
