@@ -1,0 +1,177 @@
+[
+  {
+    "id": "q1",
+    "query": "What is JavaScript?",
+    "expectedMode": "normal_chat",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q2",
+    "query": "Hello, who are you?",
+    "expectedMode": "normal_chat",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q3",
+    "query": "Explain CORS.",
+    "expectedMode": "normal_chat",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q4",
+    "query": "What is a git commit?",
+    "expectedMode": "normal_chat",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q5",
+    "query": "Explain embeddings.",
+    "expectedMode": "normal_chat",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q6",
+    "query": "How does Next.js App Router work?",
+    "expectedMode": "documentation_lookup",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["resolve-library-id", "query-docs"]
+  },
+  {
+    "id": "q7",
+    "query": "According to docs, how to use Express middleware?",
+    "expectedMode": "documentation_lookup",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["resolve-library-id", "query-docs"]
+  },
+  {
+    "id": "q8",
+    "query": "How does React Suspense work?",
+    "expectedMode": "documentation_lookup",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["resolve-library-id", "query-docs"]
+  },
+  {
+    "id": "q9",
+    "query": "What is the official doc for Prisma migrations?",
+    "expectedMode": "documentation_lookup",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["resolve-library-id", "query-docs"]
+  },
+  {
+    "id": "q10",
+    "query": "Why does my database connection fail on startup?",
+    "expectedMode": "knowledge_debugging",
+    "expectedRagKeywords": ["database", "connection", "fail", "startup", "db"],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q11",
+    "query": "My app crashes with econnrefused.",
+    "expectedMode": "knowledge_debugging",
+    "expectedRagKeywords": ["econnrefused", "crash", "network"],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q12",
+    "query": "How do I fix timeouts?",
+    "expectedMode": "knowledge_debugging",
+    "expectedRagKeywords": ["timeout", "fix", "network"],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q13",
+    "query": "Login is failing with undefined during startup.",
+    "expectedMode": "knowledge_debugging",
+    "expectedRagKeywords": ["login", "failing", "undefined", "startup", "auth"],
+    "expectedMcpTools": []
+  },
+  {
+    "id": "q14",
+    "query": "What changed in the last commit?",
+    "expectedMode": "change_investigation",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["getRecentCommits"]
+  },
+  {
+    "id": "q15",
+    "query": "Who recently edited server.js?",
+    "expectedMode": "change_investigation",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["getRecentCommits", "inspectCommit"]
+  },
+  {
+    "id": "q16",
+    "query": "Why did auth start failing after the recent edits?",
+    "expectedMode": "change_investigation",
+    "expectedRagKeywords": ["auth"],
+    "expectedMcpTools": ["getRecentCommits"]
+  },
+  {
+    "id": "q17",
+    "query": "Check git history for recent changes in the repository.",
+    "expectedMode": "change_investigation",
+    "expectedRagKeywords": [],
+    "expectedMcpTools": ["getRecentCommits"]
+  },
+  {
+    "id": "q18",
+    "query": "Where is the jwt secret configured in this codebase?",
+    "expectedMode": "repository_investigation",
+    "expectedRagKeywords": ["jwt", "secret", "config"],
+    "expectedMcpTools": ["searchCode"]
+  },
+  {
+    "id": "q19",
+    "query": "How is the database connection implemented in my project?",
+    "expectedMode": "repository_investigation",
+    "expectedRagKeywords": ["database", "connection", "implementation"],
+    "expectedMcpTools": ["searchCode"]
+  },
+  {
+    "id": "q20",
+    "query": "Show me the login route implementation in this repo.",
+    "expectedMode": "repository_investigation",
+    "expectedRagKeywords": ["login", "route", "auth"],
+    "expectedMcpTools": ["searchCode"]
+  },
+  {
+    "id": "q21",
+    "query": "Investigate the console error in the app.",
+    "expectedMode": "repository_investigation",
+    "expectedRagKeywords": ["console error", "app"],
+    "expectedMcpTools": ["list_console_messages"]
+  },
+  {
+    "id": "q22",
+    "query": "Error: { \"errorType\": \"TypeError\", \"stackFrames\": [{\"file\": \"agentOrchestrator.js\", \"line\": 42}] }",
+    "expectedMode": "log_investigation",
+    "expectedRagKeywords": ["typeerror", "agentorchestrator.js"],
+    "expectedMcpTools": ["parseErrorLog"]
+  },
+  {
+    "id": "q23",
+    "query": "Crash report: { \"errorType\": \"ECONNREFUSED\", \"stackFrames\": [{\"file\": \"connection.js\", \"line\": 12}] }",
+    "expectedMode": "log_investigation",
+    "expectedRagKeywords": ["econnrefused", "connection.js"],
+    "expectedMcpTools": ["parseErrorLog"]
+  },
+  {
+    "id": "q24",
+    "query": "Unhandled rejection: { \"errorType\": \"AuthError\", \"stackFrames\": [{\"file\": \"auth.js\", \"line\": 99}] }",
+    "expectedMode": "log_investigation",
+    "expectedRagKeywords": ["autherror", "auth.js"],
+    "expectedMcpTools": ["parseErrorLog"]
+  },
+  {
+    "id": "q25",
+    "query": "Syntax error: { \"errorType\": \"SyntaxError\", \"stackFrames\": [{\"file\": \"server.js\", \"line\": 10}] }",
+    "expectedMode": "log_investigation",
+    "expectedRagKeywords": ["syntaxerror", "server.js"],
+    "expectedMcpTools": ["parseErrorLog"]
+  }
+]
