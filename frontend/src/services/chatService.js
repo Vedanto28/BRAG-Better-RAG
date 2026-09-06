@@ -187,3 +187,24 @@ export async function updateUserPreferencesApi(preferencesData) {
   }
   return res.json();
 }
+
+/**
+ * Updates investigation status (active / completed / archived).
+ */
+export async function updateInvestigationStatusApi(id, status) {
+  const res = await fetch(`${API_BASE}/investigations/${id}/status`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    let errMessage = 'Failed to update investigation status';
+    try {
+      const errData = await res.json();
+      errMessage = errData.error?.message || errMessage;
+    } catch {}
+    throw new Error(errMessage);
+  }
+  return res.json();
+}

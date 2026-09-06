@@ -10,7 +10,22 @@ import { ProviderHubPage } from './components/byok/ProviderHubPage.tsx';
 import { useChat } from './hooks/useChat.js';
 import ChatHistory from './components/ChatHistory.jsx';
 import ChatInput from './components/ChatInput.jsx';
-import { Terminal, History, Settings, KeyRound, User, Plus, ShieldCheck, LogOut, Sparkles, Loader2 } from 'lucide-react';
+import { 
+  Terminal, 
+  History, 
+  Settings, 
+  KeyRound, 
+  User, 
+  Plus, 
+  ShieldCheck, 
+  LogOut, 
+  Sparkles, 
+  Loader2,
+  CheckCircle2,
+  CircleDot,
+  RotateCcw,
+  Hash
+} from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 
 function MainApp() {
@@ -20,7 +35,22 @@ function MainApp() {
   const [isCommandOpen, setIsCommandOpen] = useState(false);
 
   const { user, session, profile, preferences, isLoading, isAuthenticated, logout, refetchSession } = useAuth();
-  const { history, message, setMessage, loading, error, canSend, sendMessage, dismissError } = useChat();
+  const { 
+    investigationId,
+    investigationMeta,
+    history, 
+    message, 
+    setMessage, 
+    loading, 
+    isHydrating,
+    error, 
+    canSend, 
+    sendMessage, 
+    startNewInvestigation,
+    loadInvestigation,
+    setStatus,
+    dismissError 
+  } = useChat();
 
   // If user is on auth page and becomes authenticated, transition to workbench
   useEffect(() => {
@@ -30,8 +60,21 @@ function MainApp() {
   }, [isAuthenticated, currentView]);
 
   const handleLogout = async () => {
+    startNewInvestigation();
     await logout();
     setCurrentView('landing');
+  };
+
+  const handleNewInvestigationClick = () => {
+    startNewInvestigation();
+    setCurrentView('workbench');
+  };
+
+  const handleStatusToggle = () => {
+    if (!investigationId) return;
+    const currentStatus = investigationMeta?.status || 'active';
+    const nextStatus = currentStatus === 'active' ? 'completed' : 'active';
+    setStatus(nextStatus);
   };
 
   return (
@@ -99,7 +142,7 @@ function MainApp() {
 
             {/* New Investigation Button */}
             <button
-              onClick={() => setCurrentView('workbench')}
+              onClick={handleNewInvestigationClick}
               className="flex items-center justify-center gap-2 bg-[#7c5cff] hover:bg-[#8f6dff] active:scale-[0.98] text-white font-medium py-2 px-3 rounded-lg text-xs transition-all shadow-md cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -174,7 +217,7 @@ function MainApp() {
 
           {/* Main Application Area */}
           <main className="flex-1 flex flex-col min-w-0 bg-[#0c0d10] rounded-xl border border-[#1b1e24] ml-0 md:ml-2 overflow-hidden">
-            {/* Header */}
+            {/* Top Bar */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-[#1b1e24] bg-[#131519] flex-shrink-0">
               <div className="flex items-center gap-2 text-xs font-mono text-[#a5adbb]">
                 <span className="text-[#8a74ff]">BRAG</span>
@@ -225,6 +268,77 @@ function MainApp() {
             <div className="flex-1 overflow-y-auto">
               {currentView === 'workbench' && (
                 <div className="flex flex-col h-full">
+                  {/* Persistent Investigation Header / Workspace Bar */}
+                  <div className="px-5 py-2.5 bg-[#0e1014] border-b border-[#1b1e24] flex items-center justify-between flex-wrap gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-[#7c5cff]" />
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-[#f5f7fa] truncate max-w-[280px] sm:max-w-md">
+                            {investigationMeta?.title || (investigationId ? `Investigation ${investigationId.slice(0, 8)}` : 'New Diagnostic Investigation')}
+                          </span>
+                          {investigationId && (
+                            <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono bg-[#191c22] border border-[#24272f] text-[#6c7280] px-1.5 py-0.5 rounded">
+                              <Hash className="w-2.5 h-2.5" />
+                              {investigationId.slice(0, 8)}
+                            </span>
+                          )}
+                        </div>
+                        {isHydrating && (
+                          <span className="text-[10px] font-mono text-[#8a74ff] flex items-center gap-1">
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                            Hydrating persisted investigation...
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Status Badge */}
+                      {investigationId ? (
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium border ${
+                              investigationMeta?.status === 'completed'
+                                ? 'bg-[#10b981]/15 text-[#34d399] border-[#10b981]/30'
+                                : 'bg-[#3b82f6]/15 text-[#60a5fa] border-[#3b82f6]/30'
+                            }`}
+                          >
+                            {investigationMeta?.status === 'completed' ? (
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                            ) : (
+                              <CircleDot className="w-2.5 h-2.5 animate-pulse text-[#3b82f6]" />
+                            )}
+                            <span className="capitalize">{investigationMeta?.status || 'Active'}</span>
+                          </span>
+
+                          <button
+                            onClick={handleStatusToggle}
+                            className="text-[10px] font-mono text-[#a5adbb] hover:text-[#f5f7fa] bg-[#191c22] hover:bg-[#20242c] border border-[#24272f] px-2 py-0.5 rounded transition-colors cursor-pointer"
+                          >
+                            {investigationMeta?.status === 'completed' ? 'Reopen' : 'Mark Completed'}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono text-[#a5adbb] bg-[#191c22] border border-[#24272f]">
+                          <CircleDot className="w-2.5 h-2.5 text-[#a5adbb]" />
+                          Ready
+                        </span>
+                      )}
+
+                      {investigationId && (
+                        <button
+                          onClick={handleNewInvestigationClick}
+                          className="flex items-center gap-1 text-[10px] font-mono text-[#a18dff] hover:text-white bg-[#7c5cff]/15 hover:bg-[#7c5cff] border border-[#7c5cff]/30 px-2 py-0.5 rounded transition-colors cursor-pointer"
+                          title="Start a new investigation thread"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                          <span>New Thread</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {error && (
                     <div className="mx-4 mt-3 p-3 bg-[#fb7185]/10 border border-[#fb7185]/30 rounded-xl text-xs text-[#fb7185] flex items-center justify-between">
                       <span>{error}</span>
@@ -233,6 +347,7 @@ function MainApp() {
                       </button>
                     </div>
                   )}
+
                   <ChatHistory history={history} loading={loading} onOpenByok={() => setCurrentView('byok')} />
                   <ChatInput
                     message={message}
@@ -261,7 +376,7 @@ function MainApp() {
                     setSelectedCaseId(id);
                     setCurrentView('detail');
                   }}
-                  onNewInvestigation={() => setCurrentView('workbench')}
+                  onNewInvestigation={handleNewInvestigationClick}
                 />
               )}
 

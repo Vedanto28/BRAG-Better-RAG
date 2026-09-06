@@ -6,7 +6,8 @@ import {
   getInvestigation,
   getInvestigationMessages,
   getInvestigationEvidence,
-  getInvestigationDiagnosticReport
+  getInvestigationDiagnosticReport,
+  updateInvestigationStatus
 } from '../db/investigationRepository.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 
@@ -111,25 +112,44 @@ chatRouter.post('/chat', requireAuth, async (req, res) => {
 
     const userCredentials = extractAndValidateUserCredentials(req);
     const userId = req.user?.id || null;
+    let conversationHistory = [];
 
-    // Upfront IDOR check if appending to existing investigation
+    // Upfront IDOR check & conversation history hydration from PostgreSQL
     if (investigationId) {
-      const existingInv = await getInvestigation(investigationId);
-      if (existingInv && existingInv.user_id && existingInv.user_id !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            message: 'Forbidden: You do not have permission to access or append to this investigation.',
-            code: 'FORBIDDEN'
-          }
-        });
+      try {
+        const existingInv = await getInvestigation(investigationId, userId);
+        if (existingInv && existingInv.user_id && existingInv.user_id !== userId) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              message: 'Forbidden: You do not have permission to access or append to this investigation.',
+              code: 'FORBIDDEN'
+            }
+          });
+        }
+        const prevMsgs = await getInvestigationMessages(investigationId, userId);
+        conversationHistory = prevMsgs.map(m => ({ role: m.role, content: m.content }));
+      } catch (err) {
+        if (err.status === 403) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              message: 'Forbidden: You do not have permission to access or append to this investigation.',
+              code: 'FORBIDDEN'
+            }
+          });
+        }
+        // If 404 or uncreated, a new investigation will be initialized
       }
     }
 
-    const result = await runAgentOrchestrator(message, { userCredentials });
+    const result = await runAgentOrchestrator(message, { userCredentials, conversationHistory });
     const latencyMs = Date.now() - startTime;
 
     // Persist investigation, messages, evidence, and telemetry with user ownership
+    let resolvedInvId = investigationId;
+    let activeInvestigation = null;
+
     try {
       const persistenceRes = await recordChatInteraction({
         investigationId,
@@ -138,9 +158,19 @@ chatRouter.post('/chat', requireAuth, async (req, res) => {
         assistantResult: result,
         latencyMs
       });
+      resolvedInvId = persistenceRes.investigationId;
+      result.investigationId = resolvedInvId;
       if (result.metadata) {
-        result.metadata.investigationId = persistenceRes.investigationId;
+        result.metadata.investigationId = resolvedInvId;
       }
+      activeInvestigation = await getInvestigation(resolvedInvId, userId);
+      result.investigation = {
+        id: activeInvestigation.id,
+        title: activeInvestigation.title,
+        status: activeInvestigation.status,
+        created_at: activeInvestigation.created_at,
+        updated_at: activeInvestigation.updated_at
+      };
     } catch (dbErr) {
       if (dbErr.status === 403) {
         return res.status(403).json({
@@ -198,11 +228,41 @@ chatRouter.get('/investigations', requireAuth, async (req, res) => {
   }
 });
 
-// Get single investigation detail (Protected & Anti-IDOR)
+// Get single investigation detail with all messages, evidence, and diagnostic reports (Protected & Anti-IDOR)
 chatRouter.get('/investigations/:id', requireAuth, async (req, res) => {
   try {
     const investigation = await getInvestigation(req.params.id, req.user.id);
-    res.json({ success: true, investigation });
+    const messages = await getInvestigationMessages(req.params.id, req.user.id);
+    const evidence = await getInvestigationEvidence(req.params.id, req.user.id);
+    const reports = await getInvestigationDiagnosticReport(req.params.id, req.user.id);
+    res.json({
+      success: true,
+      investigation: {
+        ...investigation,
+        messages,
+        evidence,
+        reports,
+        report: reports[0] || null
+      }
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });
+  }
+});
+
+// Update investigation status (Protected & Anti-IDOR)
+chatRouter.patch('/investigations/:id/status', requireAuth, async (req, res) => {
+  try {
+    const { status } = req.body || {};
+    if (!status || !['active', 'completed', 'archived'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Invalid status. Must be active, completed, or archived.', code: 'VALIDATION_ERROR' }
+      });
+    }
+    const updated = await updateInvestigationStatus(req.params.id, status, req.user.id);
+    res.json({ success: true, investigation: updated });
   } catch (err) {
     const status = err.status || 500;
     res.status(status).json({ success: false, error: { message: err.message, code: status === 403 ? 'FORBIDDEN' : status === 404 ? 'NOT_FOUND' : 'INTERNAL_ERROR' } });

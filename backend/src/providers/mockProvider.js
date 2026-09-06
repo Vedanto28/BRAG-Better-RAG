@@ -498,6 +498,6 @@ export function getMockResponse({ messages }) {
   // Default: catch-all for any unmatched mock query
   return {
     provider: 'mock',
-    text: "Mock response for query: " + lastUserMessage
+    text: `Finding\n\nDiagnostic analysis for query: ${lastUserMessage}\n\nWhy this is happening\n\nSimulated mechanism and execution pattern.\n\nEvidence\n\n- Log: Simulated failure log inspected\n- Code: backend/server.js\n\nRoot cause\n\nIdentified root cause under investigation.\n\nConfidence\n\n95%\n\nWhat this means\n\nSystem operations and diagnostic trace active.\n\nRelated files\n\n- backend/server.js\n- backend/src/routes/chatRouter.js`
   };
 }
