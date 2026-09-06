@@ -8,12 +8,13 @@
     "start": "node server.js",
     "dev": "node server.js",
     "ingest:rag": "node src/rag/ingest.js",
-    "test": "node test/testProviderRouterAndSecurity.js && node test/testHybridRagRetrieval.js && node test/testDiagnosticQualityAndAdaptiveLength.js && node test/testMcpEvidenceLayer.js && node test/testAuthenticationAndOwnership.js",
+    "test": "node test/testProviderRouterAndSecurity.js && node test/testHybridRagRetrieval.js && node test/testDiagnosticQualityAndAdaptiveLength.js && node test/testMcpEvidenceLayer.js && node test/testAuthenticationAndOwnership.js && node test/testReliabilityAndPerformance.js",
     "test:phase2": "node test/testProviderRouterAndSecurity.js",
     "test:phase3": "node test/testHybridRagRetrieval.js",
     "test:phase4": "node test/testDiagnosticQualityAndAdaptiveLength.js",
     "test:phase5": "node test/testMcpEvidenceLayer.js",
-    "test:phase6": "node test/testAuthenticationAndOwnership.js"
+    "test:phase6": "node test/testAuthenticationAndOwnership.js",
+    "test:phase4f": "node test/testReliabilityAndPerformance.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
