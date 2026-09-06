@@ -341,6 +341,7 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
   let toolCallLimitReached = false;
   let exposedProviders = [];
   let registryAvailableTools = 0;
+  let cumulativeUsage = { prompt_tokens: 0, completion_tokens: 0 };
 
 
   if (!needsTool) {
@@ -355,6 +356,10 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
         maxTokens: activeComplexity.maxTokens
       });
       tLlmTotalMs += Date.now() - tLlmStart;
+      if (result.usage) {
+        cumulativeUsage.prompt_tokens += (result.usage.prompt_tokens || 0);
+        cumulativeUsage.completion_tokens += (result.usage.completion_tokens || 0);
+      }
       finalAnswer = result.text;
       responseProvider = result.provider;
     } catch (error) {
@@ -403,6 +408,10 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
           maxTokens: activeComplexity.maxTokens
         });
         tLlmTotalMs += Date.now() - tLlmStart;
+        if (result.usage) {
+          cumulativeUsage.prompt_tokens += (result.usage.prompt_tokens || 0);
+          cumulativeUsage.completion_tokens += (result.usage.completion_tokens || 0);
+        }
 
         responseProvider = result.provider;
 
@@ -605,6 +614,7 @@ export async function runAgentOrchestrator(message, optionsOrSignal) {
 
   const finalMetadata = {
     provider: responseProvider || "unknown",
+    usage: cumulativeUsage,
     contextFound,
     toolUsed,
     mode,

@@ -46,10 +46,13 @@ app.use(cors({
     'Authorization',
     'x-byok-gemini-key',
     'x-byok-openai-key',
+    'x-byok-anthropic-key',
     'x-byok-groq-key',
     'x-byok-openrouter-key',
+    'x-byok-mistral-key',
     'x-byok-cerebras-key',
     'x-byok-deepseek-key',
+    'x-byok-xai-key',
     'x-byok-keys',
     'Cookie'
   ]

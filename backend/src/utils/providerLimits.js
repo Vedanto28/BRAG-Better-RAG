@@ -11,6 +11,8 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 14400,         // 14,400 requests / day
     tpm: 6000,          // 6,000 tokens / minute
     tpd: 500000,        // 500,000 tokens / day
+    contextWindow: 131072,
+    supportsEmbeddings: false,
     nearLimitPercent: 0.85
   },
   gemini: {
@@ -19,6 +21,8 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 1500,          // 1,500 requests / day
     tpm: 1000000,       // 1,000,000 tokens / minute
     tpd: 10000000,      // 10,000,000 tokens / day
+    contextWindow: 1048576,
+    supportsEmbeddings: true,
     nearLimitPercent: 0.85
   },
   openai: {
@@ -27,6 +31,18 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 200,
     tpm: 40000,
     tpd: 200000,
+    contextWindow: 128000,
+    supportsEmbeddings: true,
+    nearLimitPercent: 0.85
+  },
+  anthropic: {
+    name: 'Anthropic',
+    rpm: 50,
+    rpd: 5000,
+    tpm: 40000,
+    tpd: 1000000,
+    contextWindow: 200000,
+    supportsEmbeddings: false,
     nearLimitPercent: 0.85
   },
   openrouter: {
@@ -35,6 +51,18 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 1000,
     tpm: 100000,
     tpd: 1000000,
+    contextWindow: 128000,
+    supportsEmbeddings: false,
+    nearLimitPercent: 0.85
+  },
+  mistral: {
+    name: 'Mistral AI',
+    rpm: 60,
+    rpd: 10000,
+    tpm: 100000,
+    tpd: 2000000,
+    contextWindow: 128000,
+    supportsEmbeddings: true,
     nearLimitPercent: 0.85
   },
   cerebras: {
@@ -43,6 +71,8 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 14400,
     tpm: 60000,
     tpd: 1000000,
+    contextWindow: 131072,
+    supportsEmbeddings: false,
     nearLimitPercent: 0.85
   },
   deepseek: {
@@ -51,6 +81,18 @@ export const PROVIDER_RATE_LIMITS = {
     rpd: 10000,
     tpm: 100000,
     tpd: 2000000,
+    contextWindow: 65536,
+    supportsEmbeddings: false,
+    nearLimitPercent: 0.85
+  },
+  xai: {
+    name: 'xAI (Grok)',
+    rpm: 60,
+    rpd: 10000,
+    tpm: 100000,
+    tpd: 2000000,
+    contextWindow: 131072,
+    supportsEmbeddings: false,
     nearLimitPercent: 0.85
   }
 };

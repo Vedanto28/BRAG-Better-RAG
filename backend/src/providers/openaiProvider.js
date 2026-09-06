@@ -97,17 +97,24 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
     const choice = data.choices?.[0];
     const responseMsg = choice?.message;
 
+    const usage = data.usage ? {
+      prompt_tokens: data.usage.prompt_tokens || 0,
+      completion_tokens: data.usage.completion_tokens || 0
+    } : null;
+
     if (responseMsg?.tool_calls && responseMsg.tool_calls.length > 0) {
       return {
         toolCalls: responseMsg.tool_calls.map(tc => ({
           id: tc.id,
           name: tc.function.name,
           args: JSON.parse(tc.function.arguments)
-        }))
+        })),
+        usage,
+        text: responseMsg?.content || ''
       };
     }
 
-    return { text: responseMsg?.content || '' };
+    return { text: responseMsg?.content || '', usage };
   } catch (error) {
     if (error.category) {
       throw error;

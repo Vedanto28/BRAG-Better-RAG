@@ -12,7 +12,7 @@ import { requireAuth } from '../middleware/authMiddleware.js';
 
 const chatRouter = Router();
 
-const SUPPORTED_BYOK_PROVIDERS = ['gemini', 'openai', 'openrouter', 'groq', 'cerebras', 'deepseek'];
+const SUPPORTED_BYOK_PROVIDERS = ['gemini', 'openai', 'anthropic', 'openrouter', 'groq', 'cerebras', 'deepseek', 'mistral', 'xai'];
 
 /**
  * Extracts and validates user-supplied BYOK credentials from headers or request body.

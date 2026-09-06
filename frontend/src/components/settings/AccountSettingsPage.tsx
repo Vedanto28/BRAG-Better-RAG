@@ -240,10 +240,14 @@ export const AccountSettingsPage: React.FC<SettingsPageProps> = ({ onNavigateByo
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
                 options={[
-                  { label: 'OpenRouter (BYOK Auto-fallback)', value: 'openrouter' },
-                  { label: 'Google Gemini 1.5 Pro', value: 'gemini' },
-                  { label: 'OpenAI GPT-4o', value: 'openai' },
-                  { label: 'Groq Llama 3 70B (Low Latency)', value: 'groq' },
+                  { label: 'Google Gemini 2.5 Flash / Pro', value: 'gemini' },
+                  { label: 'Groq Llama 3.3 70B (Low Latency)', value: 'groq' },
+                  { label: 'Anthropic Claude 3.5 Sonnet', value: 'anthropic' },
+                  { label: 'OpenAI GPT-4o / Mini', value: 'openai' },
+                  { label: 'OpenRouter (BYOK Multi-gateway)', value: 'openrouter' },
+                  { label: 'Mistral Large / Small', value: 'mistral' },
+                  { label: 'DeepSeek Chat / Coder', value: 'deepseek' },
+                  { label: 'xAI Grok-2', value: 'xai' },
                 ]}
               />
 

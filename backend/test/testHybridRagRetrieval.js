@@ -4,6 +4,8 @@ import { retrieveHybridContext, searchVectorKnowledge } from '../src/services/hy
 import { retrieveKeywordContext } from '../src/services/keywordRagService.js';
 import { retrieveContext } from '../src/services/rag.js';
 
+import path from 'path';
+dotenv.config({ path: path.resolve('backend/.env') });
 dotenv.config();
 
 async function testRetrievalQuality() {

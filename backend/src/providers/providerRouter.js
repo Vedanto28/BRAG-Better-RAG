@@ -2,6 +2,7 @@ import { isProviderNearLimit } from '../utils/providerLimits.js';
 import * as geminiProvider from './geminiProvider.js';
 import * as openaiProvider from './openaiProvider.js';
 import * as deepseekProvider from './deepseekProvider.js';
+import * as anthropicProvider from './anthropicProvider.js';
 
 export const PROVIDER_SPECS = {
   groq: {
@@ -20,11 +21,22 @@ export const PROVIDER_SPECS = {
     baseUrl: 'https://api.openai.com/v1',
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini'
   },
+  anthropic: {
+    module: anthropicProvider,
+    envKey: () => process.env.ANTHROPIC_API_KEY,
+    model: process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022'
+  },
   openrouter: {
     module: openaiProvider,
     envKey: () => process.env.OPENROUTER_API_KEY,
     baseUrl: 'https://openrouter.ai/api/v1',
     model: 'openai/gpt-4o-mini'
+  },
+  mistral: {
+    module: openaiProvider,
+    envKey: () => process.env.MISTRAL_API_KEY,
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: process.env.MISTRAL_MODEL || 'mistral-large-latest'
   },
   cerebras: {
     module: openaiProvider,
@@ -36,6 +48,12 @@ export const PROVIDER_SPECS = {
     module: deepseekProvider,
     envKey: () => process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_MCP,
     model: 'deepseek-chat'
+  },
+  xai: {
+    module: openaiProvider,
+    envKey: () => process.env.XAI_API_KEY,
+    baseUrl: 'https://api.x.ai/v1',
+    model: process.env.XAI_MODEL || 'grok-2-latest'
   }
 };
 
@@ -111,8 +129,8 @@ export async function buildProviderExecutionChain({
     }
   }
 
-  // B. Server Provider Priority Chain: Groq -> Gemini -> OpenAI -> DeepSeek
-  const defaultServerPriority = ['groq', 'gemini', 'openai', 'deepseek'];
+  // B. Server Provider Priority Chain: Groq -> Gemini -> OpenAI -> Anthropic -> Mistral -> DeepSeek -> xAI -> Cerebras -> OpenRouter
+  const defaultServerPriority = ['groq', 'gemini', 'openai', 'anthropic', 'mistral', 'deepseek', 'xai', 'cerebras', 'openrouter'];
 
   for (const providerName of defaultServerPriority) {
     if (addedProviders.has(providerName)) continue;

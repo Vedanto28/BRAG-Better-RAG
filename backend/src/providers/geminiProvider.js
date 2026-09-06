@@ -232,6 +232,12 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
         .filter(part => part.functionCall)
         .map(part => part.functionCall);
 
+      const usageMeta = result.response.usageMetadata;
+      const usage = usageMeta ? {
+        prompt_tokens: usageMeta.promptTokenCount || 0,
+        completion_tokens: usageMeta.candidatesTokenCount || 0
+      } : null;
+
       if (functionCalls.length > 0) {
         return {
           toolCalls: functionCalls.map(fc => ({
@@ -239,12 +245,13 @@ export async function generateResponse({ messages, systemPrompt, tools, maxToken
             name: fc.name,
             args: fc.args
           })),
-          geminiParts: candidate?.content?.parts
+          geminiParts: candidate?.content?.parts,
+          usage
         };
       }
 
       const text = result.response.text();
-      return { text };
+      return { text, usage };
     } catch (error) {
       console.warn(`[Gemini Provider] Attempt ${attempts} failed: ${error.message}`);
       
