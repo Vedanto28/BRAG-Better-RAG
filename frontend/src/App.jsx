@@ -367,6 +367,10 @@ function MainApp() {
                 <InvestigationDetailPage
                   investigationId={selectedCaseId}
                   onBack={() => setCurrentView('history')}
+                  onContinueInvestigation={(id) => {
+                    loadInvestigation(id);
+                    setCurrentView('workbench');
+                  }}
                 />
               )}
 
@@ -375,6 +379,10 @@ function MainApp() {
                   onSelectInvestigation={(id) => {
                     setSelectedCaseId(id);
                     setCurrentView('detail');
+                  }}
+                  onContinueInvestigation={(id) => {
+                    loadInvestigation(id);
+                    setCurrentView('workbench');
                   }}
                   onNewInvestigation={handleNewInvestigationClick}
                 />
